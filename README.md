@@ -118,6 +118,7 @@ CREATE TABLE transactions (
 ---
 
 ## Screenshots
+<img width="1920" height="1080" alt="Screenshot (14)" src="https://github.com/user-attachments/assets/6bd973a4-2ccf-46c5-891e-3b6ac817e6b4" />
 
 
 ---
