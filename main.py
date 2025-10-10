@@ -6,7 +6,6 @@ from datetime import datetime
 from tkinter import *
 from tkinter import messagebox, ttk
 
-
 # MySQL connection setup
 db = mysql.connector.connect(
     host='localhost',
@@ -15,7 +14,6 @@ db = mysql.connector.connect(
     database='inventory_db'
 )
 cursor = db.cursor()
-
 
 class Blockchain:
     def __init__(self):
@@ -59,14 +57,18 @@ class Blockchain:
             'previous_hash': previous_hash,
             'transactions': self.pending_transactions
         }
-        cursor.execute("INSERT INTO blockchain (block_index, timestamp, nonce, previous_hash) VALUES (%s, %s, %s, %s)",
-                       (block_index, timestamp, nonce, previous_hash))
+        cursor.execute(
+            "INSERT INTO blockchain (block_index, timestamp, nonce, previous_hash) VALUES (%s, %s, %s, %s)",
+            (block_index, timestamp, nonce, previous_hash)
+        )
         db.commit()
 
         for tx in self.pending_transactions:
             tx_timestamp = datetime.fromtimestamp(tx['timestamp'])
-            cursor.execute("INSERT INTO transactions (block_index, user, action, item, quantity, timestamp) VALUES (%s, %s, %s, %s, %s, %s)",
-                           (block_index, tx['user'], tx['action'], tx['item'], tx['quantity'], tx_timestamp))
+            cursor.execute(
+                "INSERT INTO transactions (block_index, user, action, item, quantity, timestamp) VALUES (%s, %s, %s, %s, %s, %s)",
+                (block_index, tx['user'], tx['action'], tx['item'], tx['quantity'], tx_timestamp)
+            )
         db.commit()
 
         self.pending_transactions = []
@@ -107,13 +109,11 @@ class Blockchain:
                 return False
         return True
 
-
-# Function to load users from DB into dictionary
 def load_users():
     cursor.execute("SELECT username, pin FROM users;")
     user_rows = cursor.fetchall()
-    print(user_rows)  # Debug print
     return {username: pin for username, pin in user_rows}
+
 users = load_users()
 
 class InventorySystem:
@@ -123,47 +123,70 @@ class InventorySystem:
         self.blockchain = Blockchain()
         self.inventory = {}
         self.load_inventory()
-        self.users = load_users()          # Load users from DB
+        self.users = load_users()
         self.current_user = None
-        self.login_screen()
+        self.loginscreen()
 
-    def login(self):
-        user = self.user_entry.get()
-        pin = self.pin_entry.get()
-        # Verify against database loaded users
-        if user in self.users and self.users[user] == pin:
-            self.current_user = user
-            self.main_screen()
-        else:
-            messagebox.showerror('Login Failed', 'Invalid user ID or PIN')
+    def clear_root(self):
+        for widget in self.root.winfo_children():
+            widget.destroy()
 
-
-
-class InventorySystem:
-    def __init__(self, root):
-        self.root = root
-        self.root.title('Multi-Branch Inventory Management')
-        self.blockchain = Blockchain()
-        self.inventory = {}
-        self.load_inventory()  # populate self.inventory
-        self.current_user = None
-        self.login_screen()
-
-    def login_screen(self):
+    def loginscreen(self):
         self.clear_root()
-        Label(self.root, text='Login', font=('Arial', 18)).pack(pady=10)
-        Label(self.root, text='User ID').pack()
-        self.user_entry = Entry(self.root)
-        self.user_entry.pack()
-        Label(self.root, text='PIN').pack()
-        self.pin_entry = Entry(self.root, show='*')
-        self.pin_entry.pack()
-        Button(self.root, text='Login', command=self.login).pack(pady=10)
+        self.root.configure(bg="#e6f7ff")
+        login_frame = Frame(self.root, bg="#d1e7dd", bd=2)
+        login_frame.pack(expand=True, fill="both", padx=40, pady=40)
+
+        Label(
+            login_frame,
+            text="Login",
+            font=("Arial", 28, "bold"),
+            bg="#d1e7dd",
+            fg="#0a3d62",
+            pady=16
+        ).pack()
+        Label(
+            login_frame,
+            text="User ID",
+            font=("Arial", 18),
+            bg="#d1e7dd",
+            fg="#303960"
+        ).pack(pady=12)
+        self.user_entry = Entry(
+            login_frame,
+            font=("Arial", 16),
+            bg="#f5f6fa",
+            fg="#222f3e"
+        )
+        self.user_entry.pack(ipady=10, pady=8)
+        Label(
+            login_frame,
+            text="PIN",
+            font=("Arial", 18),
+            bg="#d1e7dd",
+            fg="#303960"
+        ).pack(pady=12)
+        self.pin_entry = Entry(
+            login_frame,
+            font=("Arial", 16),
+            show="*",
+            bg="#f5f6fa",
+            fg="#222f3e"
+        )
+        self.pin_entry.pack(ipady=10, pady=8)
+        Button(
+            login_frame,
+            text="Login",
+            font=("Arial", 16, "bold"),
+            bg="#62d0ff",
+            fg="#182c61",
+            command=self.login
+        ).pack(pady=24)
 
     def login(self):
         user = self.user_entry.get()
         pin = self.pin_entry.get()
-        if user in users and users[user] == pin:
+        if user in self.users and self.users[user] == pin:
             self.current_user = user
             self.main_screen()
         else:
@@ -192,9 +215,10 @@ class InventorySystem:
         self.qty_entry.grid(row=1, column=1)
 
         Button(frame, text='Add/Update Stock', command=self.add_update_stock).grid(row=2, column=0, columnspan=2, pady=5)
+        Button(frame, text='Delete Product', command=self.delete_product).grid(row=3, column=0, columnspan=2, pady=5)
 
         Button(self.root, text='View Blockchain', command=self.view_blockchain).pack(pady=5)
-        Button(self.root, text='Logout', command=self.login_screen).pack(pady=5)
+        Button(self.root, text='Logout', command=self.loginscreen).pack(pady=5)
 
     def load_inventory(self):
         cursor.execute("SELECT item, quantity FROM inventory;")
@@ -250,6 +274,56 @@ class InventorySystem:
         self.load_inventory_display()
         messagebox.showinfo('Success', f'Stock for {item} updated by {qty}')
 
+    def delete_product(self):
+        # ensure there is a selection
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showerror('No Selection', 'Select a product row to delete')
+            return
+
+        # get selected item's values (Item, Quantity)
+        item_vals = self.tree.item(selected[0], 'values')
+        if not item_vals:
+            messagebox.showerror('Error', 'Unable to read selected item')
+            return
+        item_name = item_vals[0]
+
+        # confirm
+        if not messagebox.askyesno('Confirm Delete', f'Delete product "{item_name}" from inventory?'):
+            return
+
+        try:
+            # delete from DB
+            cursor.execute("DELETE FROM inventory WHERE item=%s", (item_name,))
+            db.commit()  # persist deletion
+
+            # update in-memory inventory
+            if item_name in self.inventory:
+                del self.inventory[item_name]
+
+            # remove from Treeview
+            self.tree.delete(selected[0])
+
+            # add blockchain transaction
+            transaction = {
+                'user': self.current_user,
+                'action': 'Delete',
+                'item': item_name,
+                'quantity': 0,
+                'timestamp': time.time()
+            }
+            self.blockchain.add_transaction(transaction)
+            previous_block = self.blockchain.get_previous_block()
+            previous_nonce = previous_block['nonce']
+            nonce = self.blockchain.proof_of_work(previous_nonce)
+            previous_hash = self.blockchain.hash(previous_block)
+            self.blockchain.create_block(nonce, previous_hash)
+
+            messagebox.showinfo('Deleted', f'Product "{item_name}" deleted successfully')
+        except Exception as e:
+            db.rollback()
+            messagebox.showerror('Error', f'Failed to delete product: {e}')
+
     def view_blockchain(self):
         if not self.blockchain.chain:
             messagebox.showinfo('Blockchain', 'Blockchain is empty')
@@ -269,11 +343,6 @@ class InventorySystem:
         txt.insert(END, blocks_text)
         txt.config(state=DISABLED)
         txt.pack()
-
-    def clear_root(self):
-        for widget in self.root.winfo_children():
-            widget.destroy()
-
 
 if __name__ == '__main__':
     root = Tk()
