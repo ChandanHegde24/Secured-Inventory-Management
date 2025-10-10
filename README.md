@@ -119,7 +119,6 @@ CREATE TABLE transactions (
 
 ## Screenshots
 
-*(Add screenshots of the login screen, inventory list, and blockchain viewer if possible.)*
 
 ---
 
