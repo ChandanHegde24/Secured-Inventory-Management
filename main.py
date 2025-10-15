@@ -130,12 +130,17 @@ class InventorySystem:
     def __init__(self, root):
         self.root = root
         self.root.title('Multi-Branch Inventory Management System')
-        self.root.geometry('900x650')
+        self.root.geometry('900x700')
         self.inventory = {}
         self.users = load_users()
         self.current_user = None
         self.current_branch = None
         self.blockchain = None
+
+        # Search state
+        self.search_var = None
+        self.search_entry = None
+
         self.loginscreen()
 
     def clear_root(self):
@@ -259,6 +264,26 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
         self.load_inventory()
         self.load_inventory_display()
 
+        # --- Search Bar (Live filter + DB LIKE) ---
+        search_frame = Frame(self.root, bg="#ecf0f1", bd=2, relief="groove")
+        search_frame.pack(pady=8, padx=20, fill="x")
+
+        Label(search_frame, text='Search Product', bg="#ecf0f1",
+              font=('Arial', 12)).grid(row=0, column=0, padx=5, pady=6, sticky="w")
+
+        self.search_var = StringVar()
+        self.search_entry = Entry(search_frame, textvariable=self.search_var, font=('Arial', 12))
+        self.search_entry.grid(row=0, column=1, padx=5, pady=6, sticky="ew")
+
+        Button(search_frame, text='Clear', command=self.clear_search,
+               bg="#95a5a6", fg="white", font=('Arial', 11, 'bold')).grid(row=0, column=2, padx=5, pady=6)
+
+        Button(search_frame, text='DB Search', command=self.db_search_inventory,
+               bg="#8e44ad", fg="white", font=('Arial', 11, 'bold')).grid(row=0, column=3, padx=5, pady=6)
+
+        search_frame.grid_columnconfigure(1, weight=1)
+        self.search_entry.bind('<KeyRelease>', self.on_search_key)
+
         input_frame = Frame(self.root, bg="#ecf0f1", bd=2, relief="raised")
         input_frame.pack(pady=10, padx=20, fill="x")
 
@@ -321,6 +346,7 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
 
     def load_inventory(self):
         cursor.execute("SELECT item, quantity FROM inventory WHERE branch = %s;", (self.current_branch,))
+        data = cursor.fetchall
         data = cursor.fetchall()
         self.inventory = {item: qty for item, qty in data}
 
@@ -381,7 +407,12 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
         previous_hash = self.blockchain.hash(previous_block)
         self.blockchain.create_block(nonce, previous_hash)
 
-        self.load_inventory_display()
+        # Refresh the filtered view if a query exists, else full
+        if self.search_var and self.search_var.get().strip():
+            self.on_search_key()
+        else:
+            self.load_inventory_display()
+
         self.item_entry.delete(0, END)
         self.qty_entry.delete(0, END)
         messagebox.showinfo('Success', f'Stock for {item} updated by {qty} in {self.current_branch}')
@@ -465,6 +496,46 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
         txt.config(state=DISABLED)
         txt.pack(side="left", fill="both", expand=True)
         txt_scrollbar.pack(side="right", fill="y")
+
+    # ---------------------------
+    # Search & Filter Integration
+    # ---------------------------
+    def on_search_key(self, event=None):
+        """Client-side live filter over in-memory inventory dict."""
+        query = (self.search_var.get() if self.search_var else '').strip().lower()
+        # Clear current rows
+        for iid in self.tree.get_children():
+            self.tree.delete(iid)
+        if not query:
+            # show all
+            for item, qty in self.inventory.items():
+                self.tree.insert('', END, values=(item, qty))
+            return
+        # filter by substring in item name
+        for item, qty in self.inventory.items():
+            if query in item.lower():
+                self.tree.insert('', END, values=(item, qty))
+
+    def clear_search(self):
+        if self.search_var:
+            self.search_var.set('')
+        # Show all original cached items
+        self.on_search_key()
+
+    def db_search_inventory(self):
+        """Server-side LIKE search; replaces table view with DB results."""
+        query = (self.search_var.get() if self.search_var else '').strip()
+        like = f"%{query}%"
+        cursor.execute(
+            "SELECT item, quantity FROM inventory WHERE branch = %s AND item LIKE %s",
+            (self.current_branch, like)
+        )
+        rows = cursor.fetchall()
+        # Update tree with DB results only (do not mutate full cache)
+        for iid in self.tree.get_children():
+            self.tree.delete(iid)
+        for item, qty in rows:
+            self.tree.insert('', END, values=(item, qty))
 
 
 if __name__ == '__main__':
