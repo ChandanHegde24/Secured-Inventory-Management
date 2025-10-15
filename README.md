@@ -118,7 +118,9 @@ CREATE TABLE transactions (
 ---
 
 ## Screenshots
-<img width="1920" height="1080" alt="Screenshot (14)" src="https://github.com/user-attachments/assets/6bd973a4-2ccf-46c5-891e-3b6ac817e6b4" />
+<img width="1920" height="1080" alt="Screenshot (18)" src="https://github.com/user-attachments/assets/4d78298d-92a0-43ea-89b5-8ada26a2aae3" />
+<img width="1920" height="1080" alt="Screenshot (19)" src="https://github.com/user-attachments/assets/31f56424-8cdb-4267-9248-aeac06473201" />
+
 
 
 ---
