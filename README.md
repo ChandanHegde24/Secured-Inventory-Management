@@ -1,139 +1,210 @@
-# Secured Inventory Management System
+🏪 Multi-Branch Inventory Management System with Blockchain ⛓️
+🔐 Technologies Used
 
-A secure, blockchain-based inventory management system with multi-branch support and a GUI built using Tkinter. All inventory changes and actions are timestamped, recorded, and auditable on a blockchain-like ledger stored in a MySQL database.
+Python 3.8+
 
----
+Tkinter (GUI)
 
-## Features
+MySQL (Database)
 
-- **User Authentication**: PIN-based login for authorized access.
-- **Blockchain Ledger**: Every inventory transaction is stored as a block, ensuring immutability and auditability.
-- **Multi-Branch Inventory**: Manage and update stock for multiple items securely.
-- **GUI Application**: Easy-to-use interface built with Tkinter.
-- **MySQL Database**: Stores users, inventory, transactions, and blockchain records.
+Blockchain for Secure Transaction Logging
 
----
+Hashlib, JSON, Time, Datetime
 
-## Requirements
+📖 Overview
 
-- Python 3.x
-- MySQL Server
-- Python packages:
-  - `mysql-connector-python`
-  - `tkinter` (usually included with Python)
-  - `ttk` (comes with tkinter)
-- MySQL database with the following tables:
+This project is a multi-branch inventory management system integrated with a blockchain ledger for transparent and tamper-proof transaction records.
+Each branch (like Inventory_1, Inventory_2) maintains its own blockchain to record Add/Update/Delete operations on products.
 
-### Example Table Schemas
+The system includes:
 
-```sql
+✅ Secure multi-user login per branch
+
+✅ Real-time inventory management (Add, Update, Delete)
+
+✅ Blockchain ledger for every action
+
+✅ Search and filter (both local and DB search)
+
+✅ GUI interface built using Tkinter
+
+📂 Project Structure
+├── inventory_app.py        # Main program file (GUI + blockchain + DB integration)
+├── README.md               # Project documentation
+└── inventory_db.sql        # SQL script to create required tables (you’ll create this)
+
+⚙️ Setup Instructions
+1️⃣ Prerequisites
+
+Make sure the following are installed:
+
+Python 3.8+
+
+MySQL Server
+
+MySQL Connector for Python
+Install it via pip:
+
+pip install mysql-connector-python
+
+2️⃣ Database Setup
+
+Create a database named inventory_db in MySQL:
+
 CREATE DATABASE inventory_db;
-
 USE inventory_db;
 
-CREATE TABLE users (
-    username VARCHAR(255) PRIMARY KEY,
-    pin VARCHAR(255) NOT NULL
-);
 
-CREATE TABLE inventory (
-    item VARCHAR(255) PRIMARY KEY,
-    quantity INT NOT NULL
-);
+Then, create the required tables:
 
+-- Table for blockchain data
 CREATE TABLE blockchain (
-    block_index INT PRIMARY KEY AUTO_INCREMENT,
-    timestamp DATETIME NOT NULL,
-    nonce INT NOT NULL,
-    previous_hash VARCHAR(255) NOT NULL
+    block_index INT PRIMARY KEY,
+    timestamp DATETIME,
+    nonce INT,
+    previous_hash VARCHAR(255),
+    branch VARCHAR(50)
 );
 
+-- Table for transactions stored in blockchain
 CREATE TABLE transactions (
-    id INT PRIMARY KEY AUTO_INCREMENT,
     block_index INT,
-    user VARCHAR(255),
-    action VARCHAR(255),
-    item VARCHAR(255),
+    user VARCHAR(50),
+    action VARCHAR(50),
+    item VARCHAR(100),
     quantity INT,
     timestamp DATETIME,
-    FOREIGN KEY (block_index) REFERENCES blockchain(block_index)
+    branch VARCHAR(50)
 );
-```
 
----
+-- Table for inventory items
+CREATE TABLE inventory (
+    item VARCHAR(100),
+    quantity INT,
+    branch VARCHAR(50),
+    PRIMARY KEY (item, branch)
+);
 
-## Setup Instructions
-
-1. **Clone the repository**:
-
-    ```sh
-    git clone https://github.com/ChandanHegde24/Secured-Inventory-Management.git
-    cd Secured-Inventory-Management
-    ```
-
-2. **Install dependencies**:
-
-    ```sh
-    pip install mysql-connector-python
-    ```
-
-3. **Configure MySQL**:
-
-    - Update the MySQL connection details in the Python script (host, user, password, database) as needed.
-    - Ensure your MySQL server is running and accessible.
-    - Create the database and tables using the SQL schema above.
-
-4. **Add Users**:
-
-    Insert at least one user into the `users` table:
-
-    ```sql
-    INSERT INTO users (username, pin) VALUES ('admin', '1234');
-    ```
-
-5. **Run the Application**:
-
-    ```sh
-    python <your_script_name>.py
-    ```
-
----
-
-## Usage
-
-- **Login** using your username and pin.
-- **View and update inventory** items and quantities.
-- **Add/Update Stock**: Enter item name and quantity to update inventory.
-- **View Blockchain**: See the full ledger of all actions performed.
-- **Logout**: Log out and return to the login screen.
-
----
-
-## Security and Integrity
-
-- Every transaction is appended to the blockchain, which uses proof-of-work and hashing to guarantee data integrity.
-- All actions are timestamped.
-- The blockchain can be reviewed within the application for full transparency.
-
----
-
-## Screenshots
-<img width="1920" height="1080" alt="Screenshot (18)" src="https://github.com/user-attachments/assets/4d78298d-92a0-43ea-89b5-8ada26a2aae3" />
-<img width="1920" height="1080" alt="Screenshot (19)" src="https://github.com/user-attachments/assets/31f56424-8cdb-4267-9248-aeac06473201" />
+-- Table for user credentials
+CREATE TABLE users (
+    username VARCHAR(50) PRIMARY KEY,
+    pin VARCHAR(10),
+    branch VARCHAR(50)
+);
 
 
+Now insert some sample users:
 
----
+INSERT INTO users (username, pin, branch) VALUES
+('admin1', '1234', 'Inventory_1'),
+('user1', '1111', 'Inventory_1'),
+('manager1', '5678', 'Inventory_1'),
+('admin2', '4321', 'Inventory_2'),
+('user2', '2222', 'Inventory_2'),
+('manager2', '8765', 'Inventory_2');
 
-## License
+3️⃣ Run the Application
 
-This project is for educational purposes. See [LICENSE](LICENSE) for more details.
+Run the main file:
 
----
+python inventory_app.py
 
-## Author
+💻 How It Works
+🪟 Login Screen
 
-Chandan Hegde ([@ChandanHegde24](https://github.com/ChandanHegde24))
+Choose a branch (Inventory_1 or Inventory_2)
 
----
-```
+Enter user credentials (e.g., admin1 / 1234)
+
+Logs into that branch’s inventory dashboard.
+
+📦 Inventory Management
+
+Add new items or update quantities.
+
+Delete items.
+
+View or search inventory in real-time.
+
+🔍 Search Features
+
+Live Filter: Filters visible items as you type.
+
+DB Search: Fetches matching results directly from the database using SQL LIKE.
+
+⛓️ Blockchain Ledger
+
+Every transaction (Add, Update, Delete) is:
+
+Added as a transaction in a block.
+
+Secured using Proof of Work.
+
+Stored permanently in MySQL.
+
+Viewable via “View Blockchain” button.
+
+🧠 Blockchain Implementation
+
+Each branch has an independent blockchain.
+Every new block:
+
+Stores all pending transactions.
+
+Includes a unique nonce via Proof of Work.
+
+Is hashed using SHA256.
+
+Is appended to the branch’s blockchain table.
+
+📸 App Preview (Conceptual)
+Screen	Description
+🔑 Login Page	Select branch and enter credentials
+📋 Inventory Dashboard	View and manage items
+🔎 Search Bar	Filter or search items
+⛓️ Blockchain Viewer	Inspect secure ledger
+🚀 Features Summary
+Feature	Description
+🔐 Multi-User Login	Separate users per branch
+🏢 Multi-Branch Support	Each branch has its own ledger
+📊 Inventory Control	Add, update, and delete stock
+⛓️ Blockchain Security	Tamper-proof transaction storage
+🔍 Dual Search Modes	Local filter + DB search
+🖥️ GUI Interface	Built using Tkinter
+🧾 Sample Login Credentials
+Branch	Username	PIN
+Inventory_1	admin1	1234
+Inventory_1	user1	1111
+Inventory_1	manager1	5678
+Inventory_2	admin2	4321
+Inventory_2	user2	2222
+Inventory_2	manager2	8765
+🧰 Dependencies
+Library	Installation Command
+mysql-connector-python	pip install mysql-connector-python
+tkinter	(Included by default with Python)
+🧑‍💻 Developer Notes
+
+Ensure MySQL service is running before launching the app.
+
+If you modify table structures, update queries in the code accordingly.
+
+Blockchain validation can be extended by using is_chain_valid() before showing blockchain records.
+
+🏁 Future Enhancements
+
+Add role-based permissions (Admin, Manager, User)
+
+Support for exporting blockchain ledger as CSV/PDF
+
+REST API for mobile integration
+
+Multi-threaded mining simulation
+
+Integration with cloud-hosted databases
+
+🧑‍🎓 Author
+
+Chandan Hegde
+📘 B.E. 4th Semester – Design and Analysis of Algorithms
+🗓️ Project: Blockchain-based Inventory System (2025)
