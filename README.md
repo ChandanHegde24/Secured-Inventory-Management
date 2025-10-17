@@ -261,7 +261,7 @@ MIT © [Your Name or Organization]
 ## Contact
 
 Maintainer: ChandanHegde24  
-Email: (add your email)  
+Email: mrhegdeofficial@gmail.com
 Repository: https://github.com/ChandanHegde24/Secured-Inventory-Management
 
 ---
