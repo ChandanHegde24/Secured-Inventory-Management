@@ -1,12 +1,5 @@
 # Secured Inventory Management
 
-███████╗ ███████╗ ██████╗ ██████╗ ██████╗ ███████╗██████╗ 
-██╔════╝ ██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝██╔══██╗
-█████╗   ███████╗██║     ██║   ██║██████╔╝█████╗  ██████╔╝
-██╔══╝   ╚════██║██║     ██║   ██║██╔══██╗██╔══╝  ██╔══██╗
-██║     ███████║╚██████╗╚██████╔╝██║  ██║███████╗██║  ██║
-╚═╝     ╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
-
 Secure, minimal, and extensible Python-based Inventory Management designed
 for small teams and personal projects — with security-first defaults.
 
