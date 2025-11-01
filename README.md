@@ -161,17 +161,6 @@ Project layout (high level)
 - requirements.txt
 - README.md
 
-Contributing
-------------
-Contributions are welcome. Please:
-1. Open an issue describing the feature or bug.
-2. Create a branch named feature/your-feature or fix/your-fix.
-3. Follow the style in the codebase and add tests for new behavior.
-4. Submit a PR with a clear description and link to the issue.
-
-Suggested labels
-- enhancement, bug, security, docs
-
 Maintainers
 -----------
 - ChandanHegde24 (owner)
