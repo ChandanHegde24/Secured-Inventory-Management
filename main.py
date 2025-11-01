@@ -10,24 +10,21 @@ from tkinter import messagebox, ttk
 db = mysql.connector.connect(
     host='localhost',
     user='root',
-    password='',        # Add MySQL password if any
+    password='',      # Add MySQL password if any
     database='inventory_db'
 )
 cursor = db.cursor()
 
 
 class Blockchain:
-    def __init__(self, branch):
-        self.branch = branch
+    def __init__(self):
         self.chain = []
         self.pending_transactions = []
         self.load_chain()
 
     def load_chain(self):
         cursor.execute(
-            "SELECT block_index, timestamp, nonce, previous_hash, branch "
-            "FROM blockchain WHERE branch = %s ORDER BY block_index;",
-            (self.branch,)
+            "SELECT block_index, timestamp, nonce, previous_hash FROM blockchain ORDER BY block_index;"
         )
         blocks = cursor.fetchall()
         for block in blocks:
@@ -36,13 +33,12 @@ class Blockchain:
                 'timestamp': block[1].timestamp(),
                 'nonce': block[2],
                 'previous_hash': block[3],
-                'branch': block[4],
                 'transactions': []
             }
             cursor.execute(
-                "SELECT user, action, item, quantity, timestamp "
-                "FROM transactions WHERE block_index = %s AND branch = %s;",
-                (block[0], self.branch)
+                "SELECT user, action, item, quantity, timestamp, branch "
+                "FROM transactions WHERE block_index = %s;",
+                (block[0],)
             )
             txs = cursor.fetchall()
             for tx in txs:
@@ -51,7 +47,8 @@ class Blockchain:
                     'action': tx[1],
                     'item': tx[2],
                     'quantity': tx[3],
-                    'timestamp': tx[4].timestamp()
+                    'timestamp': tx[4].timestamp(),
+                    'branch': tx[5]
                 })
             self.chain.append(block_dict)
         if not self.chain:
@@ -65,13 +62,13 @@ class Blockchain:
             'timestamp': time.mktime(timestamp.timetuple()),
             'nonce': nonce,
             'previous_hash': previous_hash,
-            'branch': self.branch,
             'transactions': self.pending_transactions
         }
+
         cursor.execute(
-            "INSERT INTO blockchain (block_index, timestamp, nonce, previous_hash, branch) "
-            "VALUES (%s, %s, %s, %s, %s)",
-            (block_index, timestamp, nonce, previous_hash, self.branch)
+            "INSERT INTO blockchain (block_index, timestamp, nonce, previous_hash) "
+            "VALUES (%s, %s, %s, %s)",
+            (block_index, timestamp, nonce, previous_hash)
         )
         db.commit()
 
@@ -80,7 +77,7 @@ class Blockchain:
             cursor.execute(
                 "INSERT INTO transactions (block_index, user, action, item, quantity, timestamp, branch) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (block_index, tx['user'], tx['action'], tx['item'], tx['quantity'], tx_timestamp, self.branch)
+                (block_index, tx['user'], tx['action'], tx['item'], tx['quantity'], tx_timestamp, tx['branch'])
             )
         db.commit()
 
@@ -135,12 +132,9 @@ class InventorySystem:
         self.users = load_users()
         self.current_user = None
         self.current_branch = None
-        self.blockchain = None
-
-        # Search state
+        self.blockchain = Blockchain()
         self.search_var = None
         self.search_entry = None
-
         self.loginscreen()
 
     def clear_root(self):
@@ -228,7 +222,6 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
             if user_data['pin'] == pin and user_data['branch'] == selected_branch:
                 self.current_user = user
                 self.current_branch = selected_branch
-                self.blockchain = Blockchain(self.current_branch)
                 self.main_screen()
             else:
                 messagebox.showerror('Login Failed', 'Invalid credentials or wrong branch')
@@ -293,7 +286,7 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
         self.item_entry = Entry(input_frame, font=('Arial', 12))
         self.item_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
-        Label(input_frame, text='Quantity', bg="#ecf0f1", font=('Arial', 12)).grid(
+        Label(input_frame, text='Quantity (e.g., 10 or -5)', bg="#ecf0f1", font=('Arial', 12)).grid(
             row=1, column=0, padx=5, pady=5, sticky="w"
         )
         self.qty_entry = Entry(input_frame, font=('Arial', 12))
@@ -346,7 +339,6 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
 
     def load_inventory(self):
         cursor.execute("SELECT item, quantity FROM inventory WHERE branch = %s;", (self.current_branch,))
-        data = cursor.fetchall
         data = cursor.fetchall()
         self.inventory = {item: qty for item, qty in data}
 
@@ -374,28 +366,41 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
             )
         db.commit()
 
+    # --- FUNCTION MODIFIED ---
     def add_update_stock(self):
         item = self.item_entry.get().strip()
         try:
-            qty = int(self.qty_entry.get())
+            # This is the change in quantity (can be positive or negative)
+            qty_change = int(self.qty_entry.get())
         except Exception:
-            messagebox.showerror('Invalid Input', 'Quantity must be an integer')
+            messagebox.showerror('Invalid Input', 'Quantity must be an integer (e.g., 10 or -5)')
             return
 
         if not item:
             messagebox.showerror('Invalid Input', 'Item name cannot be empty')
             return
+            
+        if qty_change == 0:
+            messagebox.showinfo('No Change', 'Quantity change cannot be zero.')
+            return
 
         prev_qty = self.inventory.get(item, 0)
-        new_qty = prev_qty + qty
+        new_qty = prev_qty + qty_change
+
+        # Add check to prevent stock from going below zero
+        if new_qty < 0:
+            messagebox.showerror('Invalid Quantity', f'Cannot remove {abs(qty_change)} units. Only {prev_qty} units of "{item}" are in stock.')
+            return
+
         self.inventory[item] = new_qty
         self.save_inventory_item(item, new_qty)
 
+        # Log the *change* in quantity (e.g., +10 or -5)
         transaction = {
             'user': self.current_user,
             'action': 'Add/Update',
             'item': item,
-            'quantity': qty,
+            'quantity': qty_change, 
             'timestamp': time.time(),
             'branch': self.current_branch
         }
@@ -415,7 +420,13 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
 
         self.item_entry.delete(0, END)
         self.qty_entry.delete(0, END)
-        messagebox.showinfo('Success', f'Stock for {item} updated by {qty} in {self.current_branch}')
+        
+        # Show a different message for adding vs removing
+        if qty_change > 0:
+            messagebox.showinfo('Success', f'Added {qty_change} units to "{item}". New total: {new_qty}.')
+        else:
+            messagebox.showinfo('Success', f'Removed {abs(qty_change)} units from "{item}". New total: {new_qty}.')
+    # --- END OF MODIFIED FUNCTION ---
 
     def delete_product(self):
         selected = self.tree.selection()
@@ -465,25 +476,33 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
 
     def view_blockchain(self):
         if not self.blockchain.chain:
-            messagebox.showinfo('Blockchain', f'Blockchain is empty for {self.current_branch}')
+           
+            messagebox.showinfo('Blockchain', 'The Global Blockchain is empty.')
             return
 
-        blocks_text = f'Blockchain Ledger for {self.current_branch}\n' + '=' * 50 + '\n\n'
+        
+        blocks_text = 'Global Blockchain Ledger (All Branches)\n' + '=' * 50 + '\n\n'
         for block in self.blockchain.chain:
             blocks_text += f"Block {block['index']} - Timestamp: {time.ctime(block['timestamp'])}\n"
             blocks_text += f"Previous Hash: {block['previous_hash']}\n"
             blocks_text += f"Nonce: {block['nonce']}\n"
-            blocks_text += f"Branch: {block.get('branch', 'N/A')}\n"
+        
             blocks_text += "Transactions:\n"
+            if not block['transactions']:
+                blocks_text += "  - No transactions in this block (Genesis block)\n"
             for tx in block['transactions']:
                 blocks_text += (
-                    f"- User: {tx['user']}, Action: {tx['action']}, Item: {tx['item']}, "
-                    f"Quantity: {tx['quantity']}, Time: {time.ctime(tx['timestamp'])}\n"
+                    f"- Branch: {tx['branch']}, User: {tx['user']}, Action: {tx['action']}, "
+                    f"Item: {tx['item']}, Quantity: {tx['quantity']}, "
+                    f"Time: {time.ctime(tx['timestamp'])}\n"
                 )
+
             blocks_text += '\n'
 
         blockchain_window = Toplevel(self.root)
-        blockchain_window.title(f'Blockchain Ledger - {self.current_branch}')
+        # --- MODIFIED ---
+        # Changed window title
+        blockchain_window.title('Global Blockchain Ledger')
         blockchain_window.geometry('900x600')
 
         text_frame = Frame(blockchain_window)
