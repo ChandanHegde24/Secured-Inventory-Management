@@ -10,7 +10,7 @@ from tkinter import messagebox, ttk
 db = mysql.connector.connect(
     host='localhost',
     user='root',
-    password='',      # Add MySQL password if any
+    password='',       # Add MySQL password if any
     database='inventory_db'
 )
 cursor = db.cursor()
@@ -304,6 +304,9 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
             fg="white",
             font=('Arial', 12, 'bold')
         ).pack(side="left", padx=5)
+        
+        # --- MODIFICATION START ---
+        # "Delete Product" is available to all users
         Button(
             button_frame,
             text='Delete Product',
@@ -312,14 +315,19 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
             fg="white",
             font=('Arial', 12, 'bold')
         ).pack(side="left", padx=5)
-        Button(
-            button_frame,
-            text='View Blockchain',
-            command=self.view_blockchain,
-            bg="#3498db",
-            fg="white",
-            font=('Arial', 12, 'bold')
-        ).pack(side="left", padx=5)
+
+        # Only show View Blockchain for admins and managers
+        if 'admin' in self.current_user.lower() or 'manager' in self.current_user.lower():
+            Button(
+                button_frame,
+                text='View Blockchain',
+                command=self.view_blockchain,
+                bg="#3498db",
+                fg="white",
+                font=('Arial', 12, 'bold')
+            ).pack(side="left", padx=5)
+        # --- MODIFICATION END ---
+            
         Button(
             button_frame,
             text='Switch Branch',
@@ -476,7 +484,7 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
 
     def view_blockchain(self):
         if not self.blockchain.chain:
-           
+            
             messagebox.showinfo('Blockchain', 'The Global Blockchain is empty.')
             return
 
