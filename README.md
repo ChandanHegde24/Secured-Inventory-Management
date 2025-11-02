@@ -1,273 +1,174 @@
 # Secured Inventory Management
 
-A secure, role-based inventory management system to track products, stock levels, suppliers, and transactions with built-in authentication and authorization. This repository provides the backend and (optionally) frontend components and emphasizes security best practices around authentication, authorization, input validation, and secrets handling.
+Secure, minimal, and extensible Python-based Inventory Management designed
+for small teams and personal projects — with security-first defaults.
 
-> Note: This README is a general, ready-to-use template. Please replace the placeholders below (tech stack, commands, environment variables, and examples) with the concrete values used in this repository so the instructions match your codebase exactly.
+Table of Contents
+- Project overview
+- Key features
+- Quick start
+- Configuration
+- Usage examples
+- Security considerations
+- Testing
+- Contributing
+- License
 
-## Table of Contents
+Project overview
+----------------
+Secured Inventory Management is a compact Python application that provides:
+- Secure user authentication and role-based access control.
+- CRUD operations for inventory items (create, read, update, delete).
+- Audit logging for critical actions.
+- Simple persistence (file-based or lightweight DB adapter).
+- Extensible structure to plug in real DBs, cloud storage, or a web UI.
 
-- [Features](#features)
-- [Tech Stack](#tech-stack)
-- [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-  - [Environment variables](#environment-variables)
-  - [Database setup & migrations](#database-setup--migrations)
-  - [Running the app](#running-the-app)
-- [API / Usage Examples](#api--usage-examples)
-- [Authentication & Security](#authentication--security)
-- [Testing](#testing)
-- [Docker](#docker)
-- [Deployment](#deployment)
-- [Development & Contribution](#development--contribution)
-- [Troubleshooting](#troubleshooting)
-- [License](#license)
-- [Contact](#contact)
+This repository focuses on delivering an auditable, secure foundation so you
+can extend to your environment (desktop, server, or cloud).
 
-## Features
+Key features
+------------
+- Authentication & Authorization
+  - Password hashing (bcrypt or Argon2 where available).
+  - Roles (admin, manager, viewer) with permission checks.
+- Inventory management
+  - Items with metadata: SKU, name, quantity, location, supplier, tags.
+  - Stock adjustments with reason/notes.
+- Audit trail
+  - Immutable append-only audit log for sensitive operations.
+- Configurable storage
+  - Default file-based storage, adapters for SQLite/Postgres possible.
+- CLI-first UX
+  - Small command-line tool for portability and automation.
+- Tests
+  - Unit tests for core logic and security checks.
 
-- User registration and login (JWT/session-based)
-- Role-based access control (Admin, Manager, Staff, etc.)
-- Product CRUD (Create, Read, Update, Delete)
-- Inventory adjustments and stock history / audit trail
-- Supplier management
-- Transaction logging (inbound/outbound)
-- Search and filtering for products
-- Input validation and sanitization
-- Secure storage of secrets (use env/vault, never checked into VCS)
-- Tests for key business logic
+Quick start (development)
+-------------------------
+Prerequisites:
+- Python 3.10+ recommended
+- pip
 
-## Tech Stack
-
-Replace the entries below with the actual stack used in this repo.
-
-- Backend: Node.js + Express OR Python + Django/Flask OR Java + Spring Boot
-- Database: PostgreSQL / MySQL / MongoDB
-- Auth: JWT (JSON Web Tokens) or session-based authentication
-- ORM: TypeORM / Sequelize / Prisma / SQLAlchemy / Hibernate
-- Frontend: React / Vue / Angular (if present)
-- Containerization: Docker (optional)
-- CI: GitHub Actions (optional)
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js >= 16 (if Node backend) or Python 3.9+ (if Python backend) or Java 11+ (if Spring)
-- PostgreSQL / MySQL / MongoDB instance (local or hosted)
-- Git
-- Docker (optional)
-
-### Installation
-
-1. Clone the repository:
+1. Clone
    git clone https://github.com/ChandanHegde24/Secured-Inventory-Management.git
    cd Secured-Inventory-Management
 
-2. Install dependencies
+2. Create & activate virtualenv
+   python -m venv .venv
+   source .venv/bin/activate   # Unix / macOS
+   .venv\Scripts\activate      # Windows PowerShell
 
-- If Node.js:
-  - npm install
-  - Or using yarn:
-    yarn install
+3. Install dependencies
+   pip install -r requirements.txt
 
-- If Python:
-  - python -m venv .venv
-  - source .venv/bin/activate
-  - pip install -r requirements.txt
+4. Initialize storage & create admin
+   python -m sim.init --create-admin
 
-- If Java:
-  - Use Maven/Gradle to build (see build instructions in your repo)
+5. Run (CLI)
+   python -m sim.cli --help
 
-### Environment variables
+Replace `sim` with the actual package/module name if different — see the package top-level module.
 
-Create a `.env` file at the project root with the following example variables and update values as necessary:
+Configuration
+-------------
+Configuration is driven by:
+- config.yaml (in repo root or $SIM_CONFIG)
+- environment variables (for secrets/DB URLs)
 
-Example `.env` (replace values with your actual secrets):
-```
-# Server
-PORT=4000
-NODE_ENV=development
+Important configuration keys:
+- storage.type: file | sqlite | postgres
+- storage.path: path for file storage or sqlite file
+- auth.password_policy: min_length, require_digits, require_special
+- logging.audit_path: path to audit log
 
-# Database
-DATABASE_URL=postgres://username:password@localhost:5432/inventory_db
+Example config.yaml:
+```yaml
+storage:
+  type: file
+  path: data/storage.json
 
-# Authentication
-JWT_SECRET=your_jwt_secret_here
-JWT_EXPIRES_IN=1d
+auth:
+  bcrypt_rounds: 12
+  default_role: viewer
 
-# Other
-SENTRY_DSN= (optional for error tracking)
-```
-
-Important: Never commit `.env` or secrets to the repository. Use environment-specific secret management for production (e.g., environment variables in your hosting platform, HashiCorp Vault, AWS Secrets Manager, etc.).
-
-### Database setup & migrations
-
-(Adjust according to your chosen ORM/migration tool)
-
-- Using a Node ORM / migration tool:
-  - npx sequelize db:migrate
-  - npx prisma migrate deploy
-  - npm run migrate
-
-- Using Django:
-  - python manage.py migrate
-  - python manage.py loaddata initial_data.json (if provided)
-
-Seed data (if seeds / fixtures are provided):
-- npm run seed
-- or python manage.py loaddata seeds.json
-
-### Running the app
-
-- Development:
-  - npm run dev
-  - or yarn dev
-  - or python manage.py runserver
-
-- Production:
-  - npm run start
-  - or docker-compose up --build
-
-The server should run on http://localhost:4000 (or your configured PORT).
-
-## API / Usage Examples
-
-The endpoints below are illustrative — replace them with your repository's actual routes and payloads.
-
-- Auth
-  - POST /api/auth/register
-    - Body: { "email": "user@example.com", "password": "password", "role": "staff" }
-  - POST /api/auth/login
-    - Body: { "email": "user@example.com", "password": "password" }
-    - Response: { "token": "JWT_TOKEN" }
-
-- Products
-  - GET /api/products
-  - GET /api/products/:id
-  - POST /api/products
-    - Body: { "sku": "PRD001", "name": "Product", "quantity": 10, "price": 12.99 }
-  - PUT /api/products/:id
-  - DELETE /api/products/:id
-
-- Inventory adjustments
-  - POST /api/inventory/adjust
-    - Body: { "productId": "...", "type": "inbound|outbound", "quantity": 5, "reason": "restock" }
-
-Authentication example using curl:
-curl -H "Authorization: Bearer <JWT_TOKEN>" http://localhost:4000/api/products
-
-Consider adding an OpenAPI / Swagger specification in the repo for full API documentation.
-
-## Authentication & Security
-
-- Use HTTPS in production (TLS/SSL).
-- Store tokens securely (HttpOnly cookies or secure client storage).
-- Implement role-based access control and restrict endpoints accordingly.
-- Validate and sanitize all inputs (use libraries like Joi, express-validator, or serializer/validators in Django).
-- Rate-limit authentication endpoints to mitigate brute-force attacks.
-- Use prepared statements or ORM to protect against SQL injection.
-- Limit CORS to trusted origins.
-- Rotate secrets and follow least-privilege principles for database and cloud credentials.
-
-## Testing
-
-- Unit tests:
-  - npm run test
-  - pytest
-- Integration tests:
-  - npm run test:integration
-- Add coverage reporting:
-  - npm run coverage
-
-Make sure to mock external dependencies (e.g., email services, payment, 3rd-party APIs) in tests.
-
-## Docker
-
-A sample Docker setup:
-
-Dockerfile (example for Node.js)
-```
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-COPY . .
-CMD ["node", "dist/index.js"]
+logging:
+  audit_path: data/audit.log
 ```
 
-docker-compose.yml (example)
-```
-version: '3.8'
-services:
-  app:
-    build: .
-    ports:
-      - "4000:4000"
-    environment:
-      - DATABASE_URL=postgres://postgres:password@db:5432/inventory_db
-  db:
-    image: postgres:15
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=inventory_db
-    volumes:
-      - db-data:/var/lib/postgresql/data
-volumes:
-  db-data:
+Usage examples
+--------------
+Create an item:
+```bash
+python -m sim.cli add-item \
+  --sku "SKU-001" --name "Widget" --quantity 10 --location "A1" \
+  --supplier "Acme Co." --tags "blue,small"
 ```
 
-## Deployment
+Update stock (adds audit entry):
+```bash
+python -m sim.cli adjust-stock --sku "SKU-001" --delta -2 --reason "sold 2 units"
+```
 
-- Use CI (GitHub Actions) to run tests and build artifacts.
-- Use container registries (Docker Hub, GitHub Container Registry) and deploy to platforms such as:
-  - AWS (ECS, EKS, Elastic Beanstalk)
-  - DigitalOcean App Platform
-  - Heroku
-  - Vercel / Netlify (for frontend)
-- Keep environment secrets in your hosting platform, not in the repository.
+List items:
+```bash
+python -m sim.cli list-items --format table
+```
 
-## Development & Contribution
+Create a user (admin only):
+```bash
+python -m sim.cli create-user --username alice --role manager
+```
 
-- Fork the repo
-- Create a feature branch: git checkout -b feat/my-feature
-- Commit changes: git commit -m "feat: add ..."
-- Push: git push origin feat/my-feature
-- Open a Pull Request describing the change and linking any relevant issues.
+Security considerations
+-----------------------
+This project is built with security in mind, but your deployment must follow best practices:
+- Never store plaintext secrets in repository. Use environment variables or secret stores.
+- Use a secure password hasher:
+  - Argon2 is preferred; fall back to bcrypt with sufficiently high rounds.
+- Protect the audit log:
+  - Keep audit files append-only and backed up.
+  - Consider remote storage (WORM / immutable) for compliance.
+- Use TLS on any network-exposed services.
+- Keep dependencies up to date and run vulnerability scans.
 
-Coding style:
-- Follow linting rules (add .eslintrc or similar)
-- Write tests for new features
-- Keep commits small and focused
+Testing
+-------
+Run unit tests:
+```bash
+pytest -q
+```
 
-## Troubleshooting
+To run a single test module:
+```bash
+pytest tests/test_inventory.py -q
+```
 
-- Database connection errors:
-  - Check DATABASE_URL and database availability
-- Migration errors:
-  - Verify migration status and check migration files
-- Authentication issues:
-  - Verify JWT_SECRET and token expiration settings
+CI
+--
+A GitHub Actions workflow (if present) runs linting and tests on push and PRs.
+Ensure your branch follows the workflow naming conventions when creating feature branches.
 
-If you encounter other issues, open an issue in the repository with steps to reproduce, logs, and relevant environment details.
+Project layout (high level)
+---------------------------
+- sim/                 # main package (core logic, auth, storage adapters)
+  - cli.py             # command line entrypoints
+  - auth.py            # authentication & role checks
+  - storage.py         # abstract storage + file/sqlite adapters
+  - inventory.py       # business logic for items & stock adjustments
+  - audit.py           # audit logging helpers
+- tests/               # pytest test suite
+- config.yaml          # example config
+- requirements.txt
+- README.md
 
-## License
+Maintainers
+-----------
+- ChandanHegde24 (owner)
 
-Specify the license used for this repository (e.g., MIT, Apache-2.0). Example:
-MIT © [Your Name or Organization]
+License
+-------
+This project is provided under the MIT License. See LICENSE for details.
 
-## Contact
-
-Maintainer: ChandanHegde24  
-Email: mrhegdeofficial@gmail.com
-Repository: https://github.com/ChandanHegde24/Secured-Inventory-Management
-
----
-
-If you want, I can:
-- Tailor this README to the exact stack and routes in your repository (I can scan the repo and update the sections to match actual code).
-- Generate a .env.example file, Dockerfile, or a GitHub Actions workflow next.
-
-Tell me which of the above you'd like me to do next (e.g., "Scan repo and update README to match code"). 
+Acknowledgements
+----------------
+Built with security-first design patterns, open-source libraries, and community best practices.
