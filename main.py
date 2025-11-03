@@ -6,11 +6,11 @@ from datetime import datetime
 from tkinter import *
 from tkinter import messagebox, ttk
 
-# MySQL connection setup (update credentials if needed)
+# MySQL connection setup
 db = mysql.connector.connect(
     host='localhost',
     user='root',
-    password='',       # Add MySQL password if any
+    password='',       
     database='inventory_db'
 )
 cursor = db.cursor()
@@ -305,8 +305,6 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
             font=('Arial', 12, 'bold')
         ).pack(side="left", padx=5)
         
-        # --- MODIFICATION START ---
-        # "Delete Product" is available to all users
         Button(
             button_frame,
             text='Delete Product',
@@ -326,7 +324,6 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
                 fg="white",
                 font=('Arial', 12, 'bold')
             ).pack(side="left", padx=5)
-        # --- MODIFICATION END ---
             
         Button(
             button_frame,
@@ -374,7 +371,6 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
             )
         db.commit()
 
-    # --- FUNCTION MODIFIED ---
     def add_update_stock(self):
         item = self.item_entry.get().strip()
         try:
@@ -434,7 +430,6 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
             messagebox.showinfo('Success', f'Added {qty_change} units to "{item}". New total: {new_qty}.')
         else:
             messagebox.showinfo('Success', f'Removed {abs(qty_change)} units from "{item}". New total: {new_qty}.')
-    # --- END OF MODIFIED FUNCTION ---
 
     def delete_product(self):
         selected = self.tree.selection()
@@ -508,8 +503,6 @@ Inventory_2: admin2/4321, user2/2222, manager2/8765
             blocks_text += '\n'
 
         blockchain_window = Toplevel(self.root)
-        # --- MODIFIED ---
-        # Changed window title
         blockchain_window.title('Global Blockchain Ledger')
         blockchain_window.geometry('900x600')
 
