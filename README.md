@@ -6,7 +6,12 @@ A robust, high-performance inventory management application built with Python (T
 
 ### Application Dashboard
 
-*This is a placeholder. Add a screenshot of your application's main dashboard here for a great visual\!*
+**Login Page:**
+<img width="1920" height="1080" alt="Screenshot (31)" src="https://github.com/user-attachments/assets/7628eb67-1623-476c-9edb-6a468bba23f2" />
+**Inventory Home:**
+<img width="1920" height="1080" alt="Screenshot (29)" src="https://github.com/user-attachments/assets/2b1b13ee-bd46-41f8-8384-01aecec596f3" />
+**Blockchain Ledger:**
+<img width="1920" height="1080" alt="Screenshot (30)" src="https://github.com/user-attachments/assets/db99580e-3fff-49e2-bcbf-fee8fb17c5f2" />
 
 -----
 
