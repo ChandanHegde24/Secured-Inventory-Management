@@ -1,174 +1,171 @@
-# Secured Inventory Management
+# 🛡️ Multi-Branch Inventory System with Blockchain Ledger
 
-Secure, minimal, and extensible Python-based Inventory Management designed
-for small teams and personal projects — with security-first defaults.
+A robust, high-performance inventory management application built with Python (Tkinter) and MySQL. This v2.0 release features a secure, immutable blockchain audit log for all transactions, Role-Based Access Control (RBAC), and a fully multi-threaded, non-blocking UI.
 
-Table of Contents
-- Project overview
-- Key features
-- Quick start
-- Configuration
-- Usage examples
-- Security considerations
-- Testing
-- Contributing
-- License
+-----
 
-Project overview
-----------------
-Secured Inventory Management is a compact Python application that provides:
-- Secure user authentication and role-based access control.
-- CRUD operations for inventory items (create, read, update, delete).
-- Audit logging for critical actions.
-- Simple persistence (file-based or lightweight DB adapter).
-- Extensible structure to plug in real DBs, cloud storage, or a web UI.
+### Application Dashboard
 
-This repository focuses on delivering an auditable, secure foundation so you
-can extend to your environment (desktop, server, or cloud).
+**Login Page:**
+<img width="1920" height="1080" alt="Screenshot (31)" src="https://github.com/user-attachments/assets/7628eb67-1623-476c-9edb-6a468bba23f2" />
+**Inventory Home:**
+<img width="1920" height="1080" alt="Screenshot (29)" src="https://github.com/user-attachments/assets/2b1b13ee-bd46-41f8-8384-01aecec596f3" />
+**Blockchain Ledger:**
+<img width="1920" height="1080" alt="Screenshot (30)" src="https://github.com/user-attachments/assets/db99580e-3fff-49e2-bcbf-fee8fb17c5f2" />
 
-Key features
-------------
-- Authentication & Authorization
-  - Password hashing (bcrypt or Argon2 where available).
-  - Roles (admin, manager, viewer) with permission checks.
-- Inventory management
-  - Items with metadata: SKU, name, quantity, location, supplier, tags.
-  - Stock adjustments with reason/notes.
-- Audit trail
-  - Immutable append-only audit log for sensitive operations.
-- Configurable storage
-  - Default file-based storage, adapters for SQLite/Postgres possible.
-- CLI-first UX
-  - Small command-line tool for portability and automation.
-- Tests
-  - Unit tests for core logic and security checks.
+-----
 
-Quick start (development)
--------------------------
-Prerequisites:
-- Python 3.10+ recommended
-- pip
+## 🚀 Key Features (v2.0)
 
-1. Clone
-   git clone https://github.com/ChandanHegde24/Secured-Inventory-Management.git
-   cd Secured-Inventory-Management
+  * **⛓️ Immutable Blockchain Ledger:** All inventory changes (adds, transfers, deletes) are recorded as transactions in a tamper-detectable blockchain.
+  * **👤 Role-Based Access Control (RBAC):** Secure user (`user`) and administrator (`admin`) roles. Admins have exclusive access to view the global blockchain ledger.
+  * **⚡ High-Performance UI:** The entire application is multi-threaded. No database operation *ever* freezes the UI, ensuring a smooth, responsive user experience.
+  * **📈 Scalable By Design:** The blockchain now uses header-only loading, meaning the app starts instantly and uses minimal RAM, even with millions of transactions.
+  * **🔐 Secure Credentials:** All user PINs are hashed using **bcrypt**, the industry-standard.
+  * **📦 Atomic Transactions:** Stock transfers are fully atomic (using `FOR UPDATE` and single commits). If a transfer fails, the entire transaction is rolled back, preventing data corruption.
+  * **🏪 Multi-Branch Support:** Manage inventory and conduct seamless stock transfers between multiple branches.
 
-2. Create & activate virtualenv
-   python -m venv .venv
-   source .venv/bin/activate   # Unix / macOS
-   .venv\Scripts\activate      # Windows PowerShell
+-----
 
-3. Install dependencies
-   pip install -r requirements.txt
+## 💻 Tech Stack
 
-4. Initialize storage & create admin
-   python -m sim.init --create-admin
+  * **Core:** Python 3
+  * **GUI:** Tkinter (standard library)
+  * **Database:** MySQL Server
+  * **Connector:** `mysql-connector-python`
+  * **Security:** `bcrypt`
+  * **Config:** `python-dotenv`
 
-5. Run (CLI)
-   python -m sim.cli --help
+-----
 
-Replace `sim` with the actual package/module name if different — see the package top-level module.
+## ⚙️ Setup & Installation
 
-Configuration
--------------
-Configuration is driven by:
-- config.yaml (in repo root or $SIM_CONFIG)
-- environment variables (for secrets/DB URLs)
+Follow these steps to get the application running locally.
 
-Important configuration keys:
-- storage.type: file | sqlite | postgres
-- storage.path: path for file storage or sqlite file
-- auth.password_policy: min_length, require_digits, require_special
-- logging.audit_path: path to audit log
+### 1\. Clone the Repository
 
-Example config.yaml:
-```yaml
-storage:
-  type: file
-  path: data/storage.json
-
-auth:
-  bcrypt_rounds: 12
-  default_role: viewer
-
-logging:
-  audit_path: data/audit.log
-```
-
-Usage examples
---------------
-Create an item:
 ```bash
-python -m sim.cli add-item \
-  --sku "SKU-001" --name "Widget" --quantity 10 --location "A1" \
-  --supplier "Acme Co." --tags "blue,small"
+git clone https://github.com/your-username/your-repo-name.git
+cd your-repo-name
 ```
 
-Update stock (adds audit entry):
+### 2\. Install Dependencies
+
+This project requires a few external Python libraries.
+
 ```bash
-python -m sim.cli adjust-stock --sku "SKU-001" --delta -2 --reason "sold 2 units"
+pip install mysql-connector-python bcrypt python-dotenv
 ```
 
-List items:
+### 3\. Set Up the MySQL Database
+
+You must have a running MySQL server.
+
+1.  Log in to your MySQL server and create the database:
+
+    ```sql
+    CREATE DATABASE inventory_db;
+    ```
+
+2.  Create a dedicated user for the app (Recommended for security):
+
+    ```sql
+    -- Creates a user 'inventory_app_user' with the password '123@cn'
+    CREATE USER 'inventory_app_user'@'localhost' IDENTIFIED BY '123@cn';
+    GRANT ALL PRIVILEGES ON inventory_db.* TO 'inventory_app_user'@'localhost';
+    FLUSH PRIVILEGES;
+    ```
+
+    *(You can change the username and password, just make sure to update your `.env` file.)*
+
+3.  Run the following SQL in your `inventory_db` to create all necessary tables:
+
+    ```sql
+    -- 1. 'users' table (stores login info and roles)
+    CREATE TABLE users (
+        username VARCHAR(50) PRIMARY KEY NOT NULL,
+        pin VARCHAR(60) NOT NULL, -- Increased to 60 for bcrypt
+        branch VARCHAR(50) NOT NULL,
+        role VARCHAR(20) NOT NULL DEFAULT 'user' -- The new RBAC column
+    );
+
+    -- 2. 'inventory' table (stores current stock)
+    CREATE TABLE inventory (
+        item VARCHAR(255) NOT NULL,
+        quantity INT NOT NULL,
+        branch VARCHAR(50) NOT NULL,
+        PRIMARY KEY (item, branch) -- Composite key
+    );
+
+    -- 3. 'blockchain' table (stores block headers)
+    CREATE TABLE blockchain (
+        block_index INT PRIMARY KEY NOT NULL,
+        timestamp DATETIME NOT NULL,
+        nonce INT NOT NULL,
+        previous_hash VARCHAR(64) NOT NULL
+    );
+
+    -- 4. 'transactions' table (stores all transaction data)
+    CREATE TABLE transactions (
+        tx_id INT AUTO_INCREMENT PRIMARY KEY,
+        block_index INT NOT NULL,
+        user VARCHAR(50),
+        action VARCHAR(50),
+        item VARCHAR(255),
+        quantity INT,
+        timestamp DATETIME,
+        branch VARCHAR(50),
+        FOREIGN KEY (block_index) REFERENCES blockchain(block_index)
+    );
+    ```
+
+### 4\. Create your `.env` File
+
+In the root of the project, create a file named `.env`. This securely stores your database credentials so they aren't hard-coded in the script.
+
+```ini
+# .env file
+DB_HOST=localhost
+DB_USER=inventory_app_user
+DB_PASS=123@cn
+DB_NAME=inventory_db
+```
+
+### 5\. Create Sample Users & Hash PINs
+
+**This is a critical two-step process.**
+
+1.  **Insert Users with Plaintext PINs:**
+    First, add your sample users to the `users` table. Use **plaintext (regular) PINs** for this one-time setup.
+
+    ```sql
+    -- Example:
+    INSERT INTO users (username, pin, branch, role)
+    VALUES
+    ('admin1', '1234', 'Inventory_1', 'admin'),
+    ('user1', '0000', 'Inventory_1', 'user'),
+    ('admin2', '5678', 'Inventory_2', 'admin');
+    ```
+
+2.  **Run the Migration Script:**
+    Now, run the `migrate_pins.py` script from your terminal. This will find all plaintext PINs, securely hash them with bcrypt, and update the database.
+
+    ```bash
+    python migrate_pins.py
+    ```
+
+### 6\. Run the Application\!
+
+You're all set. Launch the app:
+
 ```bash
-python -m sim.cli list-items --format table
+python inventory_app.py
 ```
 
-Create a user (admin only):
-```bash
-python -m sim.cli create-user --username alice --role manager
-```
+You can now log in using the credentials you created (e.g., `admin1` / `1234`).
 
-Security considerations
------------------------
-This project is built with security in mind, but your deployment must follow best practices:
-- Never store plaintext secrets in repository. Use environment variables or secret stores.
-- Use a secure password hasher:
-  - Argon2 is preferred; fall back to bcrypt with sufficiently high rounds.
-- Protect the audit log:
-  - Keep audit files append-only and backed up.
-  - Consider remote storage (WORM / immutable) for compliance.
-- Use TLS on any network-exposed services.
-- Keep dependencies up to date and run vulnerability scans.
+-----
 
-Testing
--------
-Run unit tests:
-```bash
-pytest -q
-```
+## 📜 License
 
-To run a single test module:
-```bash
-pytest tests/test_inventory.py -q
-```
-
-CI
---
-A GitHub Actions workflow (if present) runs linting and tests on push and PRs.
-Ensure your branch follows the workflow naming conventions when creating feature branches.
-
-Project layout (high level)
----------------------------
-- sim/                 # main package (core logic, auth, storage adapters)
-  - cli.py             # command line entrypoints
-  - auth.py            # authentication & role checks
-  - storage.py         # abstract storage + file/sqlite adapters
-  - inventory.py       # business logic for items & stock adjustments
-  - audit.py           # audit logging helpers
-- tests/               # pytest test suite
-- config.yaml          # example config
-- requirements.txt
-- README.md
-
-Maintainers
------------
-- ChandanHegde24 (owner)
-
-License
--------
-This project is provided under the MIT License. See LICENSE for details.
-
-Acknowledgements
-----------------
-Built with security-first design patterns, open-source libraries, and community best practices.
+This project is licensed under the MIT License. See the `LICENSE` file for details.
