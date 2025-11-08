@@ -1,9 +1,3 @@
-Here is a complete, "aesthetic" README.md file for your v2.0 project.
-
-You can copy and paste this directly into a `README.md` file in your GitHub repository.
-
------
-
 # 🛡️ Multi-Branch Inventory System with Blockchain Ledger
 
 A robust, high-performance inventory management application built with Python (Tkinter) and MySQL. This v2.0 release features a secure, immutable blockchain audit log for all transactions, Role-Based Access Control (RBAC), and a fully multi-threaded, non-blocking UI.
