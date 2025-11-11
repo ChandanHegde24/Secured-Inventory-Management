@@ -1,4 +1,3 @@
-# inventory_app.py
 import hashlib
 import json
 import time
@@ -29,7 +28,8 @@ def get_db_connection():
             host=DB_HOST,
             user=DB_USER,
             password=DB_PASS,
-            database=DB_NAME
+            database=DB_NAME,
+            connect_timeout=10 # Add a connection timeout
         )
         return db
     except mysql.connector.Error as err:
@@ -37,47 +37,49 @@ def get_db_connection():
         return None
 
 class Blockchain:
-    def __init__(self, db_connection):
+    # Connections will be passed in per-operation, not stored in the class.
+    def __init__(self):
         self.chain = []
         self.pending_transactions = []
-        self.db = db_connection
-        self.cursor = self.db.cursor()
-        self.load_chain()
+        self.difficulty = "00" # Simple difficulty (2 leading zeros)
 
-    # --- v2.0 SCALABILITY ---
-    # Loads ONLY block headers into memory on startup for speed.
-    # Full block data (with transactions) is fetched from DB when needed.
-    def load_chain(self):
+    def load_chain(self, db_connection):
         """Loads only the blockchain HEADERS from the database on startup."""
         try:
-            self.cursor.execute(
-                "SELECT block_index, timestamp, nonce, previous_hash FROM blockchain ORDER BY block_index;"
-            )
-            blocks = self.cursor.fetchall()
-            self.chain = []  # Clear local chain before loading
-            
-            for block in blocks:
-                block_dict = {
-                    'index': block[0],
-                    'timestamp': block[1].timestamp(),
-                    'nonce': block[2],
-                    'previous_hash': block[3],
-                    # 'transactions' key is deliberately omitted to save memory
-                }
-                self.chain.append(block_dict)
+            with db_connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT block_index, timestamp, nonce, previous_hash FROM blockchain ORDER BY block_index;"
+                )
+                blocks = cursor.fetchall()
+                self.chain = [] # Clear local chain before loading
                 
+                for block in blocks:
+                    block_dict = {
+                        'index': block[0],
+                        'timestamp': block[1].timestamp(),
+                        'nonce': block[2],
+                        'previous_hash': block[3],
+                        # 'transactions' key is deliberately omitted to save memory
+                    }
+                    self.chain.append(block_dict)
+                    
             if not self.chain:
                 print("No blockchain in DB, creating Genesis block...")
-                self.create_block(nonce=1, previous_hash='0')
+                with db_connection.cursor() as genesis_cursor:
+                    self.create_block(genesis_cursor, nonce=1, previous_hash='0')
+                db_connection.commit() # Commit the Genesis block
+                print("Genesis block committed to database.")
             
-            if not self.is_chain_valid():
-                print("CRITICAL: Blockchain validation FAILED. The ledger may be tampered with!")
-            else:
-                print("Blockchain successfully loaded and validated.")
+            # Run validation *after* any potential Genesis block
+            with db_connection.cursor() as validation_cursor:
+                if not self.is_chain_valid(validation_cursor):
+                    print("CRITICAL: Blockchain validation FAILED. The ledger may be tampered with!")
+                else:
+                    print("Blockchain successfully loaded and validated.")
                 
         except mysql.connector.Error as err:
             print(f"Error loading blockchain: {err}")
-            self.db.rollback()
+            db_connection.rollback()
             if not self.chain:
                 # Fallback for an empty/corrupt DB
                 print("Creating in-memory Genesis block as fallback.")
@@ -92,23 +94,20 @@ class Blockchain:
                     'transactions': self.pending_transactions
                 }
                 self.pending_transactions = []
-                # --- v2.0 SCALABILITY ---
                 # Convert to header-only before appending
                 block_header = { k: v for k, v in block.items() if k != 'transactions' }
                 self.chain.append(block_header)
 
 
-    # --- v2.0 SCALABILITY ---
-    # New helper function to get a full block (header + TXs) from the DB.
-    def get_block_with_transactions(self, block_index):
+    def get_block_with_transactions(self, cursor, block_index):
         """Fetches a single block header AND its transactions from the DB."""
         try:
-            # 1. Fetch header
-            self.cursor.execute(
+            # Fetch header
+            cursor.execute(
                 "SELECT block_index, timestamp, nonce, previous_hash FROM blockchain WHERE block_index = %s;",
                 (block_index,)
             )
-            block = self.cursor.fetchone()
+            block = cursor.fetchone()
             if not block:
                 return None
             
@@ -120,13 +119,13 @@ class Blockchain:
                 'transactions': []
             }
             
-            # 2. Fetch transactions
-            self.cursor.execute(
+            # Fetch transactions
+            cursor.execute(
                 "SELECT user, action, item, quantity, timestamp, branch "
                 "FROM transactions WHERE block_index = %s;",
                 (block_index,)
             )
-            txs = self.cursor.fetchall()
+            txs = cursor.fetchall()
             for tx in txs:
                 block_dict['transactions'].append({
                     'user': tx[0], 'action': tx[1], 'item': tx[2],
@@ -137,8 +136,8 @@ class Blockchain:
             print(f"Error fetching full block {block_index}: {err}")
             return None
 
-
-    def create_block(self, nonce, previous_hash):
+    def create_block(self, cursor, nonce, previous_hash):
+        """Saves a new block and its transactions to the DB using the provided cursor."""
         block_index = len(self.chain) + 1
         timestamp = datetime.now()
         block = {
@@ -151,7 +150,7 @@ class Blockchain:
 
         try:
             # Save block to blockchain table
-            self.cursor.execute(
+            cursor.execute(
                 "INSERT INTO blockchain (block_index, timestamp, nonce, previous_hash) "
                 "VALUES (%s, %s, %s, %s)",
                 (block_index, timestamp, nonce, previous_hash)
@@ -160,7 +159,7 @@ class Blockchain:
             # Save transactions to transactions table
             for tx in self.pending_transactions:
                 tx_timestamp = datetime.fromtimestamp(tx['timestamp'])
-                self.cursor.execute(
+                cursor.execute(
                     "INSERT INTO transactions (block_index, user, action, item, quantity, timestamp, branch) "
                     "VALUES (%s, %s, %s, %s, %s, %s, %s)",
                     (block_index, tx['user'], tx['action'], tx['item'], tx['quantity'], tx_timestamp, tx['branch'])
@@ -168,7 +167,6 @@ class Blockchain:
             
             self.pending_transactions = []
             
-            # --- v2.0 SCALABILITY ---
             # Append a header-only dict to the in-memory chain
             block_header = {
                 'index': block['index'],
@@ -183,18 +181,16 @@ class Blockchain:
             
         except mysql.connector.Error as err:
             print(f"Error creating block: {err}")
-            raise err
+            raise err # Re-raise to be caught by the calling logic's transaction
 
-    # --- v2.0 SCALABILITY ---
-    # Modified to fetch the *full* previous block from DB for hashing.
-    def get_previous_block(self):
+    def get_previous_block(self, cursor):
         """Gets the full (header + TXs) previous block from the DB."""
         if not self.chain:
             return None
         # self.chain[-1] is just the header
         previous_block_header = self.chain[-1]
         # We must fetch the full block from the DB to be able to hash it
-        return self.get_block_with_transactions(previous_block_header['index'])
+        return self.get_block_with_transactions(cursor, previous_block_header['index'])
 
     def hash(self, block):
         """Hashes a full block (header + transactions)."""
@@ -204,12 +200,35 @@ class Blockchain:
         encoded_block = json.dumps(block_copy, sort_keys=True).encode()
         return hashlib.sha256(encoded_block).hexdigest()
 
+    def proof_of_work(self, previous_hash, transactions):
+        """
+        Simple Proof-of-Work (PoW):
+        - Find a 'nonce' that, when hashed with the previous hash
+          and transactions, results in a hash with the required difficulty (e.g., "00").
+        """
+        # Create a block template to hash
+        block_data = {
+            'index': len(self.chain) + 1,
+            'timestamp': time.mktime(datetime.now().timetuple()),
+            'previous_hash': previous_hash,
+            'transactions': sorted(transactions, key=lambda x: x['timestamp'])
+            # 'nonce' will be added in the loop
+        }
+        
+        nonce = 0
+        while True:
+            block_data['nonce'] = nonce
+            hash_attempt = self.hash(block_data) # Use the existing hash function
+            
+            if hash_attempt.startswith(self.difficulty):
+                # Found a valid nonce
+                return nonce
+            nonce += 1
+
     def add_transaction(self, transaction):
         self.pending_transactions.append(transaction)
 
-    # --- v2.0 SCALABILITY ---
-    # Modified to fetch full blocks on-the-fly for validation.
-    def is_chain_valid(self):
+    def is_chain_valid(self, cursor):
         """
         Validates the chain by fetching full blocks as needed
         to re-calculate hashes.
@@ -218,14 +237,13 @@ class Blockchain:
             current_block_header = self.chain[i]
             
             # To validate, we need the *full* previous block (with TXs)
-            # self.chain[i-1] is just a header.
-            previous_block_full = self.get_block_with_transactions(self.chain[i-1]['index'])
+            previous_block_full = self.get_block_with_transactions(cursor, self.chain[i-1]['index'])
             
             if previous_block_full is None:
                 print(f"Chain invalid: Failed to fetch full data for block {self.chain[i-1]['index']}")
                 return False
             
-            # 1. Check hash integrity
+            # Check hash integrity
             if current_block_header['previous_hash'] != self.hash(previous_block_full):
                 print(f"Chain invalid: Hash mismatch for block {i}")
                 return False
@@ -240,36 +258,39 @@ class InventorySystem:
         self.inventory = {}
         self.current_user = None
         self.current_branch = None
-        self.current_role = None # --- v2.0 RBAC ---
+        self.current_role = None # For Role-Based Access Control
         self.all_branches = ["Inventory_1", "Inventory_2"] 
         
-        self.main_db = get_db_connection()
-        if not self.main_db:
+        # Use a short-lived connection just for initialization.
+        db = get_db_connection()
+        if not db:
             root.withdraw()
             messagebox.showerror("Fatal Error", "Could not connect to database. Check .env file and console.")
             root.quit()
             return
             
-        self.blockchain = Blockchain(self.main_db)
-        
-        # Commit the Genesis block if it was just created
-        if len(self.blockchain.chain) == 1 and self.blockchain.chain[0]['index'] == 1:
-            try:
-                self.main_db.commit()
-                print("Genesis block committed to database.")
-            except mysql.connector.Error as err:
-                print(f"Error committing Genesis block: {err}")
-                self.main_db.rollback()
+        try:
+            self.blockchain = Blockchain()
+            self.blockchain.load_chain(db)
+        except mysql.connector.Error as err:
+            messagebox.showerror("Fatal Error", f"Could not load blockchain: {err}")
+            root.quit()
+            return
+        finally:
+            if db and db.is_connected():
+                db.close()
         
         self.search_var = None
         self.search_entry = None
         self.loginscreen()
 
     def start_thread(self, target_function, args=()):
+        """Starts a new daemon thread for background tasks like DB operations."""
         thread = threading.Thread(target=target_function, args=args, daemon=True)
         thread.start()
 
     def show_message(self, type, title, message, parent=None):
+        """Schedules a messagebox to be shown on the main UI thread."""
         if parent is None:
             parent = self.root
         
@@ -279,11 +300,12 @@ class InventorySystem:
             self.root.after(0, lambda: messagebox.showerror(title, message, parent=parent))
 
     def clear_root(self):
+        """Destroys all widgets in the root window."""
         for widget in self.root.winfo_children():
             widget.destroy()
 
     def loginscreen(self):
-        # ... (This function's UI code is unchanged) ...
+        """Displays the main login UI."""
         self.clear_root()
         self.root.configure(bg="#e6f7ff")
 
@@ -330,7 +352,7 @@ class InventorySystem:
         )
         self.login_button.pack(pady=24)
         
-        self.root.bind('<Return>', self.login)
+        self.root.bind('<Return>', self.login) # Allow pressing Enter to login
 
         info_frame = Frame(login_frame, bg="#f0f4f7", bd=1, relief="solid")
         info_frame.pack(pady=20, padx=20, fill="x")
@@ -351,6 +373,7 @@ class InventorySystem:
         ).pack(pady=(0, 10))
 
     def login(self, event=None):
+        """Handles the login button click and starts the login logic thread."""
         user = self.user_entry.get()
         pin = self.pin_entry.get()
         selected_branch = self.branch_var.get()
@@ -365,13 +388,15 @@ class InventorySystem:
         self.login_button.config(state=DISABLED, text="Logging in...")
         self.start_thread(self.login_logic, args=(user, pin, selected_branch))
 
-    # --- v2.0 RBAC ---
-    # Modified to fetch and store the user's role.
     def login_logic(self, user, pin, selected_branch):
-        """Validates user credentials and fetches their role."""
+        """Validates user credentials and fetches their role in a background thread."""
         db = None
         try:
             db = get_db_connection()
+            if db is None:
+                self.show_message('error', 'Login Error', 'Could not connect to database.')
+                return
+
             cursor = db.cursor()
             
             # Fetch pin, branch, AND role
@@ -384,14 +409,14 @@ class InventorySystem:
             if result:
                 hashed_pin_from_db = result[0].encode('utf-8')
                 user_branch = result[1]
-                user_role = result[2] # --- v2.0 RBAC ---
+                user_role = result[2] 
                 
                 # Check PIN and if user is assigned to the selected branch
                 if user_branch == selected_branch and bcrypt.checkpw(pin.encode('utf-8'), hashed_pin_from_db):
                     self.current_user = user
                     self.current_branch = selected_branch
-                    self.current_role = user_role # --- v2.0 RBAC ---
-                    self.root.after(0, self.main_screen)
+                    self.current_role = user_role
+                    self.root.after(0, self.main_screen) # Switch to main screen on UI thread
                 else:
                     self.show_message('error', 'Login Failed', 'Invalid credentials or wrong branch')
             else:
@@ -402,14 +427,20 @@ class InventorySystem:
         except Exception as e:
             self.show_message('error', 'Login Error', f'An unexpected error occurred: {e}')
         finally:
-            self.root.after(0, lambda: self.login_button.config(state=NORMAL, text="Login"))
+            # Only re-enable the button if the login *failed*
+            # (i.e., self.current_user was not set).
+            # This prevents an error on successful login when the widget is destroyed.
+            if self.current_user is None:
+                self.root.after(0, lambda: self.login_button.config(state=NORMAL, text="Login"))
+                
             if db and db.is_connected():
-                cursor.close()
+                if 'cursor' in locals(): # Check if cursor was created
+                    cursor.close()
                 db.close()
 
 
     def main_screen(self):
-        # ... (Most UI code is unchanged) ...
+        """Displays the main inventory management UI."""
         self.clear_root()
         self.root.unbind('<Return>') 
 
@@ -417,7 +448,7 @@ class InventorySystem:
         header_frame.pack(fill="x", pady=(0, 10))
         Label(
             header_frame,
-            text=f'Welcome {self.current_user} ({self.current_role}) - Branch: {self.current_branch}', # --- v2.0 RBAC ---
+            text=f'Welcome {self.current_user} ({self.current_role}) - Branch: {self.current_branch}',
             font=('Arial', 18, 'bold'),
             bg="#2c3e50",
             fg="white",
@@ -442,6 +473,7 @@ class InventorySystem:
         
         self.tree.bind('<<TreeviewSelect>>', self.on_row_select)
 
+        # Load inventory in a background thread
         self.start_thread(self.load_inventory_logic)
 
         search_frame = Frame(self.root, bg="#ecf0f1", bd=2, relief="groove")
@@ -454,7 +486,7 @@ class InventorySystem:
         Button(search_frame, text='Clear', command=self.clear_search,
                bg="#95a5a6", fg="white", font=('Arial', 11, 'bold')).grid(row=0, column=2, padx=5, pady=6)
         search_frame.grid_columnconfigure(1, weight=1)
-        self.search_entry.bind('<KeyRelease>', self.on_search_key)
+        self.search_entry.bind('<KeyRelease>', self.on_search_key) # Search as you type
 
         input_frame = Frame(self.root, bg="#ecf0f1", bd=2, relief="raised")
         input_frame.pack(pady=10, padx=20, fill="x")
@@ -494,13 +526,12 @@ class InventorySystem:
             bg="#e74c3c", fg="white", font=('Arial', 12, 'bold')
         ).pack(side="left", padx=5)
 
-        # --- v2.0 RBAC ---
-        # Check role from self.current_role, not username
+        # Only show 'View Blockchain' button if user is an admin
         if self.current_role == 'admin':
             Button(
                 button_frame,
                 text='View Blockchain',
-                command=self.view_blockchain, # Now scalable!
+                command=self.view_blockchain, 
                 bg="#3498db", fg="white", font=('Arial', 12, 'bold')
             ).pack(side="left", padx=5)
             
@@ -519,7 +550,7 @@ class InventorySystem:
         ).pack(side="left", padx=5)
         
     def on_row_select(self, event=None):
-        # ... (This function is unchanged) ...
+        """Populates the item name entry when a row in the tree is clicked."""
         try:
             selected_item = self.tree.selection()[0]
             item_name = self.tree.item(selected_item, 'values')[0]
@@ -529,18 +560,23 @@ class InventorySystem:
             
             self.item_entry.insert(0, item_name)
         except IndexError:
-            pass
+            pass # Ignore if no row is selected or selection is cleared
 
     def load_inventory_logic(self):
-        # ... (This function is unchanged) ...
+        """Fetches the current branch's inventory from the DB in a thread."""
         db = None
         try:
             db = get_db_connection()
+            if db is None:
+                self.show_message('error', 'Load Error', 'Failed to connect to DB for inventory load.')
+                return
+                
             cursor = db.cursor()
             cursor.execute("SELECT item, quantity FROM inventory WHERE branch = %s;", (self.current_branch,))
             data = cursor.fetchall()
             self.inventory = {item: qty for item, qty in data}
             
+            # Schedule the UI update on the main thread
             self.root.after(0, self.load_inventory_display)
         except mysql.connector.Error as err:
             self.show_message('error', 'Load Error', f'Failed to load inventory: {err}')
@@ -550,7 +586,7 @@ class InventorySystem:
                 db.close()
 
     def load_inventory_display(self):
-        # ... (This function is unchanged) ...
+        """Clears and repopulates the Treeview with current inventory data."""
         for i in self.tree.get_children():
             self.tree.delete(i)
         
@@ -560,7 +596,10 @@ class InventorySystem:
             self.tree.insert('', END, values=(item, qty))
 
     def save_inventory_item_logic(self, cursor, item, qty, branch):
-        # ... (This function is unchanged) ...
+        """
+        Saves a single item's quantity to the DB using the provided cursor.
+        This function assumes it's part of a larger transaction and does NOT commit.
+        """
         cursor.execute(
             "SELECT quantity FROM inventory WHERE item=%s AND branch=%s FOR UPDATE",
             (item, branch)
@@ -578,7 +617,7 @@ class InventorySystem:
             )
 
     def add_update_stock(self):
-        # ... (This function is unchanged) ...
+        """Validates input and starts the add/update stock background thread."""
         item = self.item_entry.get().strip().title()
         
         try:
@@ -598,12 +637,26 @@ class InventorySystem:
         self.start_thread(self.add_update_stock_logic, args=(item, qty_change))
 
     def add_update_stock_logic(self, item, qty_change):
-        # ... (This function is unchanged, but benefits from scalable get_previous_block()) ...
+        """
+        Handles the logic for adding/updating stock in a transaction:
+        1. Lock inventory row.
+        2. Check stock levels.
+        3. Update inventory.
+        4. Create blockchain transaction.
+        5. Mine block (PoW).
+        6. Save block to DB.
+        7. Commit transaction.
+        """
         db = None
         try:
             db = get_db_connection()
+            if db is None:
+                self.show_message('error', 'Error', 'Could not connect to database for update.')
+                return
+
             cursor = db.cursor()
             
+            # Lock the row for update to prevent race conditions
             cursor.execute(
                 "SELECT quantity FROM inventory WHERE item=%s AND branch=%s FOR UPDATE",
                 (item, self.current_branch)
@@ -617,6 +670,7 @@ class InventorySystem:
                 self.show_message('error', 'Invalid Quantity', f'Cannot remove {abs(qty_change)} units. Only {prev_qty} units of "{item}" are in stock.')
                 return
 
+            # 1. Update inventory table
             self.save_inventory_item_logic(cursor, item, new_qty, self.current_branch)
 
             transaction = {
@@ -627,21 +681,28 @@ class InventorySystem:
                 'timestamp': time.time(),
                 'branch': self.current_branch
             }
-            self.blockchain.db = db
-            self.blockchain.cursor = cursor
             self.blockchain.add_transaction(transaction)
 
-            # This now fetches the full previous block from DB automatically
-            previous_block = self.blockchain.get_previous_block() 
-            nonce = 0 
+            # 2. Get previous block hash (needs cursor for DB read)
+            previous_block = self.blockchain.get_previous_block(cursor) 
             previous_hash = self.blockchain.hash(previous_block)
-            self.blockchain.create_block(nonce, previous_hash)
             
-            db.commit()
+            # 3. Calculate the Proof-of-Work (mine) for the new block
+            print(f"Mining new block for item {item}...")
+            nonce = self.blockchain.proof_of_work(previous_hash, self.blockchain.pending_transactions)
+            print(f"Block mined! Nonce found: {nonce}")
 
+            # 4. Save the new block to the DB (also uses cursor)
+            self.blockchain.create_block(cursor, nonce, previous_hash)
+            
+            # 5. Commit all DB changes (inventory + blockchain)
+            db.commit() 
+
+            # Update in-memory inventory
             self.inventory[item] = new_qty
             
-            self.root.after(0, self.on_search_key)
+            # Update UI from the main thread
+            self.root.after(0, self.on_search_key) # Refreshes the tree view with filters
             self.root.after(0, lambda: self.item_entry.delete(0, END))
             self.root.after(0, lambda: self.qty_entry.delete(0, END))
             
@@ -658,10 +719,11 @@ class InventorySystem:
             self.show_message('error', 'Error', f'An unexpected error occurred: {e}\nTransaction rolled back.')
         finally:
             if db and db.is_connected():
+                cursor.close()
                 db.close()
 
     def delete_product(self):
-        # ... (This function is unchanged) ...
+        """Validates selection and starts the delete product background thread."""
         selected = self.tree.selection()
         if not selected:
             messagebox.showerror('No Selection', 'Select a product row to delete')
@@ -679,17 +741,30 @@ class InventorySystem:
         self.start_thread(self.delete_product_logic, args=(item_name, selected[0]))
 
     def delete_product_logic(self, item_name, tree_item_id):
-        # ... (This function is unchanged, but benefits from scalable get_previous_block()) ...
+        """
+        Handles the logic for deleting a product in a transaction:
+        1. Delete from inventory.
+        2. Create blockchain transaction.
+        3. Mine block (PoW).
+        4. Save block to DB.
+        5. Commit transaction.
+        """
         db = None
         try:
             db = get_db_connection()
+            if db is None:
+                self.show_message('error', 'Error', 'Could not connect to database for delete.')
+                return
+                
             cursor = db.cursor()
 
+            # 1. Delete from inventory
             cursor.execute(
                 "DELETE FROM inventory WHERE item=%s AND branch=%s",
                 (item_name, self.current_branch)
             )
             
+            # 2. Create blockchain transaction
             transaction = {
                 'user': self.current_user,
                 'action': 'Delete Product',
@@ -698,21 +773,26 @@ class InventorySystem:
                 'timestamp': time.time(),
                 'branch': self.current_branch
             }
-            self.blockchain.db = db
-            self.blockchain.cursor = cursor
             self.blockchain.add_transaction(transaction)
 
-            # This now fetches the full previous block from DB automatically
-            previous_block = self.blockchain.get_previous_block()
-            nonce = 0
+            previous_block = self.blockchain.get_previous_block(cursor)
             previous_hash = self.blockchain.hash(previous_block)
-            self.blockchain.create_block(nonce, previous_hash)
 
-            db.commit()
+            # 3. Mine block
+            print(f"Mining new block for deleting {item_name}...")
+            nonce = self.blockchain.proof_of_work(previous_hash, self.blockchain.pending_transactions)
+            print(f"Block mined! Nonce found: {nonce}")
+            
+            # 4. Save block to DB
+            self.blockchain.create_block(cursor, nonce, previous_hash)
+
+            # 5. Commit transaction
+            db.commit() 
 
             if item_name in self.inventory:
                 del self.inventory[item_name]
                 
+            # Update UI from main thread
             self.root.after(0, lambda: self.tree.delete(tree_item_id))
             self.show_message('info', 'Deleted', f'Product "{item_name}" deleted successfully from {self.current_branch}')
             
@@ -724,14 +804,13 @@ class InventorySystem:
             self.show_message('error', 'Error', f'An unexpected error occurred: {e}\nTransaction rolled back.')
         finally:
             if db and db.is_connected():
+                cursor.close()
                 db.close()
 
-    # --- v2.0 SCALABILITY ---
-    # Modified to fetch full block data on-demand.
     def view_blockchain(self):
         """
-        Displays the blockchain ledger.
-        Fetches full block data (with TXs) on-demand.
+        Displays the blockchain ledger in a new window.
+        Fetches full block data (with TXs) on-demand using a new, short-lived connection.
         """
         if not self.blockchain.chain:
             messagebox.showinfo('Blockchain', 'The Global Blockchain is empty.')
@@ -739,36 +818,52 @@ class InventorySystem:
             
         blocks_text = 'Global Blockchain Ledger (All Branches)\n' + '=' * 50 + '\n\n'
         
-        # self.blockchain.chain only has headers.
-        for block_header in self.blockchain.chain:
-            # Fetch the full block data (with TXs) from the DB
-            block = self.blockchain.get_block_with_transactions(block_header['index'])
-            
-            if block is None:
-                blocks_text += f"Block {block_header['index']} - ERROR: FAILED TO LOAD TRANSACTIONS\n"
-                blocks_text += f"Previous Hash: {block_header['previous_hash']}\n"
-                blocks_text += '\n' + '-'*60 + '\n\n'
-                continue
+        db = None
+        try:
+            db = get_db_connection()
+            if db is None:
+                self.show_message('error', 'Blockchain Error', 'Could not connect to database to view ledger.')
+                return
 
-            blocks_text += f"Block {block['index']} - Timestamp: {time.ctime(block['timestamp'])}\n"
-            blocks_text += f"Previous Hash: {block['previous_hash']}\n"
-            blocks_text += f"Nonce: {block['nonce']}\n"
-            blocks_text += "Transactions:\n"
-            
-            if not block['transactions']:
-                blocks_text += "   - No transactions in this block (Genesis block)\n"
-            
-            sorted_txs = sorted(block.get('transactions', []), key=lambda x: x['timestamp'])
-            
-            for tx in sorted_txs:
-                blocks_text += (
-                    f" - Branch: {tx['branch']:<12} | User: {tx['user']:<10} | Action: {tx['action']:<15} | "
-                    f"Item: {tx['item']:<20} | Qty: {tx['quantity']:<5} | "
-                    f"Time: {time.ctime(tx['timestamp'])}\n"
-                )
-            blocks_text += '\n' + '-'*60 + '\n\n'
+            # Create a cursor just for this read operation
+            with db.cursor() as cursor:
+                # Iterate over a *copy* of the chain headers to prevent modification issues
+                for block_header in self.blockchain.chain[:]:
+                    # Pass the cursor to the method to fetch full block data
+                    block = self.blockchain.get_block_with_transactions(cursor, block_header['index'])
+                    
+                    if block is None:
+                        blocks_text += f"Block {block_header['index']} - ERROR: FAILED TO LOAD TRANSACTIONS\n"
+                        blocks_text += f"Previous Hash: {block_header['previous_hash']}\n"
+                        blocks_text += '\n' + '-'*60 + '\n\n'
+                        continue
 
-        # --- (The rest of the UI for this window is unchanged) ---
+                    blocks_text += f"Block {block['index']} - Timestamp: {time.ctime(block['timestamp'])}\n"
+                    blocks_text += f"Previous Hash: {block['previous_hash']}\n"
+                    blocks_text += f"Nonce: {block['nonce']}\n"
+                    blocks_text += "Transactions:\n"
+                    
+                    if not block['transactions']:
+                        blocks_text += "   - No transactions in this block (Genesis block)\n"
+                    
+                    sorted_txs = sorted(block.get('transactions', []), key=lambda x: x['timestamp'])
+                    
+                    for tx in sorted_txs:
+                        blocks_text += (
+                            f" - Branch: {tx['branch']:<12} | User: {tx['user']:<10} | Action: {tx['action']:<15} | "
+                            f"Item: {tx['item']:<20} | Qty: {tx['quantity']:<5} | "
+                            f"Time: {time.ctime(tx['timestamp'])}\n"
+                        )
+                    blocks_text += '\n' + '-'*60 + '\n\n'
+
+        except mysql.connector.Error as err:
+            self.show_message('error', 'Blockchain Error', f'Failed to read blockchain from DB: {err}')
+            return
+        finally:
+            if db and db.is_connected():
+                db.close()
+        
+        # Display the blockchain in a new Toplevel window
         blockchain_window = Toplevel(self.root)
         blockchain_window.title('Global Blockchain Ledger')
         blockchain_window.geometry('950x600')
@@ -779,19 +874,19 @@ class InventorySystem:
         h_scrollbar = Scrollbar(text_frame, orient="horizontal", command=txt.xview)
         txt.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
         txt.insert(END, blocks_text)
-        txt.config(state=DISABLED) 
+        txt.config(state=DISABLED) # Make text read-only
         v_scrollbar.pack(side="right", fill="y")
         h_scrollbar.pack(side="bottom", fill="x")
         txt.pack(side="left", fill="both", expand=True)
         
 
     def open_stock_transfer_window(self):
-        # ... (This function is unchanged) ...
+        """Opens a modal window for transferring stock to another branch."""
         transfer_window = Toplevel(self.root)
         transfer_window.title('Stock Transfer')
         transfer_window.geometry('450x350')
         transfer_window.configure(bg="#f0f4f7")
-        transfer_window.grab_set()
+        transfer_window.grab_set() # Make the window modal
 
         form_frame = Frame(transfer_window, bg="#f0f4f7", pady=15, padx=15)
         form_frame.pack(expand=True, fill="both")
@@ -811,6 +906,7 @@ class InventorySystem:
 
         Label(form_frame, text="Item:", font=('Arial', 12), bg="#f0f4f7").grid(row=2, column=0, pady=5, sticky="w")
         
+        # Only list items that are in stock
         available_items = sorted([item for item, qty in self.inventory.items() if qty > 0])
         item_var = StringVar()
         item_combo = ttk.Combobox(
@@ -823,6 +919,7 @@ class InventorySystem:
         stock_label.grid(row=2, column=2, padx=5, sticky="w")
         
         def on_item_select(event=None):
+            """Updates the 'In Stock' label when an item is selected."""
             selected_item = item_var.get()
             current_stock = self.inventory.get(selected_item, 0)
             stock_label.config(text=f"(In Stock: {current_stock})")
@@ -850,7 +947,7 @@ class InventorySystem:
 
 
     def execute_stock_transfer(self, item, qty_str, to_branch, window):
-        # ... (This function is unchanged) ...
+        """Validates transfer input and starts the transfer logic thread."""
         item = item.strip().title()
 
         if not item or not to_branch:
@@ -876,12 +973,26 @@ class InventorySystem:
         self.start_thread(self.execute_stock_transfer_logic, args=(item, quantity, to_branch, window))
 
     def execute_stock_transfer_logic(self, item, quantity, to_branch, window):
-        # ... (This function is unchanged, but benefits from scalable get_previous_block()) ...
+        """
+        Handles the logic for a stock transfer in a single transaction:
+        1. Lock source and target inventory rows.
+        2. Check stock levels again.
+        3. Update both inventory records.
+        4. Create two blockchain transactions (out and in).
+        5. Mine block (PoW).
+        6. Save block to DB.
+        7. Commit transaction.
+        """
         db = None
         try:
             db = get_db_connection()
+            if db is None:
+                self.show_message('error', 'Transfer Failed', 'Could not connect to database for transfer.', parent=window)
+                return
+
             cursor = db.cursor()
             
+            # Lock source row
             cursor.execute(
                 "SELECT quantity FROM inventory WHERE item=%s AND branch=%s FOR UPDATE",
                 (item, self.current_branch)
@@ -889,11 +1000,13 @@ class InventorySystem:
             result = cursor.fetchone()
             current_stock_source = result[0] if result else 0
             
+            # Final check in case stock changed since opening the window
             if quantity > current_stock_source:
                 self.show_message('error', 'Insufficient Stock', f'Stock level changed. Only {current_stock_source} units available.', parent=window)
                 db.rollback()
                 return
                 
+            # Lock target row
             cursor.execute(
                 "SELECT quantity FROM inventory WHERE item=%s AND branch=%s FOR UPDATE",
                 (item, to_branch)
@@ -904,34 +1017,43 @@ class InventorySystem:
             new_stock_source = current_stock_source - quantity
             new_stock_target = current_stock_target + quantity
             
+            # 1. Update source inventory
             self.save_inventory_item_logic(cursor, item, new_stock_source, self.current_branch)
             
+            # 2. Update target inventory
             self.save_inventory_item_logic(cursor, item, new_stock_target, to_branch)
             
             tx_time = time.time()
-            self.blockchain.db = db
-            self.blockchain.cursor = cursor
             
+            # 3. Add both sides of the transfer to the pending transactions
             self.blockchain.add_transaction({
                 'user': self.current_user, 'action': 'Transfer Out', 'item': item,
                 'quantity': -quantity, 'timestamp': tx_time, 'branch': self.current_branch
             })
             self.blockchain.add_transaction({
                 'user': self.current_user, 'action': 'Transfer In', 'item': item,
-                'quantity': quantity, 'timestamp': tx_time + 1, 'branch': to_branch
+                'quantity': quantity, 'timestamp': tx_time + 1, 'branch': to_branch # Ensure unique timestamp
             })
             
-            # This now fetches the full previous block from DB automatically
-            previous_block = self.blockchain.get_previous_block()
-            nonce = 0
+            previous_block = self.blockchain.get_previous_block(cursor)
             previous_hash = self.blockchain.hash(previous_block)
-            self.blockchain.create_block(nonce, previous_hash)
+
+            # 4. Mine block
+            print(f"Mining new block for transfer of {item}...")
+            nonce = self.blockchain.proof_of_work(previous_hash, self.blockchain.pending_transactions)
+            print(f"Block mined! Nonce found: {nonce}")
             
-            db.commit()
+            # 5. Save block to DB
+            self.blockchain.create_block(cursor, nonce, previous_hash)
             
+            # 6. Commit all inventory and blockchain changes
+            db.commit() 
+            
+            # Update local in-memory inventory
             self.inventory[item] = new_stock_source
             
-            self.root.after(0, self.on_search_key)
+            # Update UI from the main thread
+            self.root.after(0, self.on_search_key) # Refresh main tree
             self.root.after(0, window.destroy)
             self.show_message('info', 'Success', f'Transferred {quantity} units of "{item}" to {to_branch} successfully.')
 
@@ -943,36 +1065,42 @@ class InventorySystem:
             self.show_message('error', 'Transfer Failed', f'An unexpected error occurred: {e}\nTransaction rolled back.', parent=window)
         finally:
             if db and db.is_connected():
+                cursor.close()
                 db.close()
 
 
     def on_search_key(self, event=None):
-        # ... (This function is unchanged) ...
+        """Filters the Treeview in real-time based on the search box text."""
         query = (self.search_var.get() if self.search_var else '').strip().lower()
         
+        # Clear the tree
         for iid in self.tree.get_children():
             self.tree.delete(iid)
             
         if not query:
+            # If search is empty, reload the full display
             self.load_inventory_display()
             return
             
+        # Filter in-memory inventory
         filtered_items = sorted([
             (item, qty) for item, qty in self.inventory.items() 
             if query in item.lower()
         ])
         
+        # Repopulate tree with filtered items
         for item, qty in filtered_items:
             self.tree.insert('', END, values=(item, qty))
 
     def clear_search(self):
-        # ... (This function is unchanged) ...
+        """Clears the search box and reloads the full inventory display."""
         if self.search_var:
             self.search_var.set('')
         self.load_inventory_display()
 
 
 if __name__ == '__main__':
+    # Check for .env file variables before starting
     if not all([DB_HOST, DB_USER, DB_NAME]):
         print("CRITICAL ERROR: Database credentials not found in .env file.")
         print("Please create a .env file with DB_HOST, DB_USER, DB_PASS, and DB_NAME.")
@@ -981,6 +1109,4 @@ if __name__ == '__main__':
         app = InventorySystem(root)
         root.mainloop()
         
-        if app.main_db and app.main_db.is_connected():
-            app.main_db.close()
-            print("Main database connection closed.")
+        print("Application closed.")
