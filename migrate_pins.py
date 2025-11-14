@@ -1,4 +1,3 @@
-# migrate_pins.py (Corrected Version)
 import mysql.connector
 import bcrypt
 from dotenv import load_dotenv
@@ -29,7 +28,6 @@ try:
     cursor = db.cursor()
     print("Connected to database...")
 
-    # --- IMPORTANT ---
     # First, make the 'pin' column larger to hold the hash
     try:
         cursor.execute("ALTER TABLE users MODIFY pin VARCHAR(60) NOT NULL;")
@@ -37,14 +35,12 @@ try:
     except mysql.connector.Error as err:
         print(f"Could not alter table (maybe already altered?): {err}")
 
-    # --- CHANGED HERE ---
     # Fetch all users using 'username' instead of 'user_id'
     cursor.execute("SELECT username, pin FROM users;")
     users = cursor.fetchall()
 
     updated_count = 0
-    
-    # --- CHANGED HERE ---
+
     for username, pin in users:
         # Check if the PIN is already hashed (bcrypt hashes start with $2b$)
         if pin.startswith('$2b$'):
@@ -56,7 +52,6 @@ try:
         plaintext_pin = pin.encode('utf-8')
         hashed_pin = bcrypt.hashpw(plaintext_pin, bcrypt.gensalt())
         
-        # --- CHANGED HERE ---
         # Store the hash (as a string), updating by 'username'
         cursor.execute(
             "UPDATE users SET pin = %s WHERE username = %s",
