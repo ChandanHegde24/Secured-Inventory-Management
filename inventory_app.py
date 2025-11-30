@@ -234,7 +234,7 @@ class InventorySystem:
         Label(
             header_frame,
             text=f'Welcome {self.current_user} ({self.current_role}) - Branch: {self.current_branch}',
-            font=('Arial', 18, 'bold'),
+            font=('Arial', 20, 'bold'),
             bg="#2c3e50",
             fg="white",
             pady=10
@@ -242,7 +242,18 @@ class InventorySystem:
 
         inventory_frame = Frame(self.root)
         inventory_frame.pack(pady=10, padx=20, fill="both", expand=True)
-        Label(inventory_frame, text=f'{self.current_branch} Stock', font=('Arial', 16, 'bold')).pack()
+        Label(inventory_frame, text=f'{self.current_branch} Stock', font=('Arial', 18, 'bold')).pack()
+
+        # ----------------- CUSTOMIZE TREEVIEW FONT ----------------------
+        style = ttk.Style()
+        # Set the font to be BOLD only (Standard size 11, instead of 14)
+        style.configure("Treeview", 
+                        font=('Arial', 11, 'bold'), 
+                        rowheight=25) 
+        
+        style.configure("Treeview.Heading", 
+                        font=('Arial', 12, 'bold'))
+        # -----------------------------------------------------------------
 
         self.tree = ttk.Treeview(inventory_frame, columns=('Item', 'Quantity'), show='headings', height=15)
         self.tree.heading('Item', text='Item')
