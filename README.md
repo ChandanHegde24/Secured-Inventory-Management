@@ -48,6 +48,20 @@ A robust, high-performance inventory management application built with Python (T
 
 -----
 
+## 📁 Project Structure
+
+```text
+Secured-Inventory-Management/
+├── inventory_app.py     # Main application UI and core business logic
+├── blockchain.py        # Blockchain implementation (hashing, mining, validation)
+├── migrate_pins.py      # Script to hash plaintext passwords to bcrypt
+├── check_env.py         # Utility script to verify environment variables
+├── .env                 # Environment variables for database credentials
+└── README.md            # Project documentation
+```
+
+-----
+
 ## ⚙️ Setup & Installation
 
 Follow these steps to get the application running locally.
