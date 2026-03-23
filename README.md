@@ -4,47 +4,47 @@ A robust, high-performance inventory management application built with Python (T
 
 -----
 
-### Application Dashboard
+## Application Dashboard
 
 **Login Page:**
 
-<img width="1920" height="1080" alt="Screenshot (31)" src="https://github.com/user-attachments/assets/7628eb67-1623-476c-9edb-6a468bba23f2" />
+![Screenshot (31)](https://github.com/user-attachments/assets/7628eb67-1623-476c-9edb-6a468bba23f2)
 
 -----
 **Inventory Home:**
 
-<img width="1920" height="1080" alt="Screenshot (29)" src="https://github.com/user-attachments/assets/2b1b13ee-bd46-41f8-8384-01aecec596f3" />
+![Screenshot (29)](https://github.com/user-attachments/assets/2b1b13ee-bd46-41f8-8384-01aecec596f3)
 
 -----
 **Blockchain Ledger:**
 
-<img width="1920" height="1080" alt="Screenshot (30)" src="https://github.com/user-attachments/assets/db99580e-3fff-49e2-bcbf-fee8fb17c5f2" />
+![Screenshot (30)](https://github.com/user-attachments/assets/db99580e-3fff-49e2-bcbf-fee8fb17c5f2)
 
 -----
 
 ## 🚀 Key Features
 
-  * **⛓️ Immutable Blockchain Ledger:** All inventory changes (adds, transfers, deletes) are recorded as transactions in a tamper-detectable blockchain using Proof-of-Work.
-  * **👤 Role-Based Access Control (RBAC):** Secure user (`user`) and administrator (`admin`) roles. Admins have exclusive access to view the global blockchain ledger.
-  * **⚡ High-Performance Architecture:** 
-    * **Connection Pooling:** Utilizes `mysql.connector.pooling` to execute background threads significantly faster.
-    * **Multi-threading:** Non-blocking UI ensures a smooth, responsive user experience while executing background database workloads.
-  * **📈 Scalable By Design:** The blockchain uses header-only loading, meaning the app starts instantly and uses minimal RAM, even with millions of transactions.
-  * **🔐 Secure Credentials:** All user PINs are hashed using **bcrypt**, the industry standard for secure password hashing.
-  * **📦 Atomic Transactions:** Stock transfers are fully atomic (using row-level locking `FOR UPDATE` and single commits). If a transfer fails, the entire transaction rolls back, preventing data corruption.
-  * **🏪 Multi-Branch Support:** Manage inventory and conduct seamless stock transfers seamlessly between multiple branches.
-  * **📝 Advanced Logging:** Standardized comprehensive Python logging to capture errors, tracebacks, and blockchain mining successes securely.
+* **⛓️ Immutable Blockchain Ledger:** All inventory changes (adds, transfers, deletes) are recorded as transactions in a tamper-detectable blockchain using Proof-of-Work.
+* **👤 Role-Based Access Control (RBAC):** Secure user (`user`) and administrator (`admin`) roles. Admins have exclusive access to view the global blockchain ledger.
+* **⚡ High-Performance Architecture:**
+  * **Connection Pooling:** Utilizes `mysql.connector.pooling` to execute background threads significantly faster.
+  * **Multi-threading:** Non-blocking UI ensures a smooth, responsive user experience while executing background database workloads.
+* **📈 Scalable By Design:** The blockchain uses header-only loading, meaning the app starts instantly and uses minimal RAM, even with millions of transactions.
+* **🔐 Secure Credentials:** All user PINs are hashed using **bcrypt**, the industry standard for secure password hashing.
+* **📦 Atomic Transactions:** Stock transfers are fully atomic (using row-level locking `FOR UPDATE` and single commits). If a transfer fails, the entire transaction rolls back, preventing data corruption.
+* **🏪 Multi-Branch Support:** Manage inventory and conduct seamless stock transfers seamlessly between multiple branches.
+* **📝 Advanced Logging:** Standardized comprehensive Python logging to capture errors, tracebacks, and blockchain mining successes securely.
 
 -----
 
 ## 💻 Tech Stack
 
-  * **Core:** Python 3 (incorporating Type Hints & Modular Logic)
-  * **GUI:** Tkinter (standard library)
-  * **Database:** MySQL Server
-  * **Connector:** `mysql-connector-python` (with `pooling`)
-  * **Security:** `bcrypt`
-  * **Config:** `python-dotenv`
+* **Core:** Python 3 (incorporating Type Hints & Modular Logic)
+* **GUI:** Tkinter (standard library)
+* **Database:** MySQL Server
+* **Connector:** `mysql-connector-python` (with `pooling`)
+* **Security:** `bcrypt`
+* **Config:** `python-dotenv`
 
 -----
 
@@ -71,13 +71,13 @@ pip install mysql-connector-python bcrypt python-dotenv
 
 You must have a running MySQL server.
 
-1.  Log in to your MySQL server and create the database:
+1. Log in to your MySQL server and create the database:
 
     ```sql
     CREATE DATABASE inventory_db;
     ```
 
-2.  Create a dedicated user for the app (Recommended for security):
+2. Create a dedicated user for the app (Recommended for security):
 
     ```sql
     -- Creates a user 'inventory_app_user' with the password '123@cn'
@@ -88,7 +88,7 @@ You must have a running MySQL server.
 
     *(You can change the username and password, just make sure to update your `.env` file.)*
 
-3.  Run the following SQL in your `inventory_db` to create all necessary tables:
+3. Run the following SQL in your `inventory_db` to create all necessary tables:
 
     ```sql
     -- 1. 'users' table (stores login info and roles)
@@ -145,7 +145,7 @@ DB_NAME=inventory_db
 
 **This is a critical two-step process.**
 
-1.  **Insert Users with Plaintext PINs:**
+1. **Insert Users with Plaintext PINs:**
     First, add your sample users to the `users` table. Use **plaintext (regular) PINs** for this one-time setup.
 
     ```sql
@@ -157,14 +157,14 @@ DB_NAME=inventory_db
     ('admin2', '5678', 'Inventory_2', 'admin');
     ```
 
-2.  **Run the Migration Script:**
+2. **Run the Migration Script:**
     Now, run the `migrate_pins.py` script from your terminal. This will find all plaintext PINs, securely hash them with bcrypt, and update the database.
 
     ```bash
     python migrate_pins.py
     ```
 
-### 6\. Run the Application\!
+### 6. Run the Application
 
 You're all set. Launch the app:
 
