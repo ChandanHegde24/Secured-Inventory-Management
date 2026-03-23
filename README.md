@@ -1,6 +1,6 @@
-# 🛡️ Multi-Branch Inventory System with Blockchain Ledger
+# 🛡️ Secured Multi-Branch Inventory System with Blockchain Ledger
 
-A robust, high-performance inventory management application built with Python (Tkinter) and MySQL. This v2.0 release features a secure, immutable blockchain audit log for all transactions, Role-Based Access Control (RBAC), and a fully multi-threaded, non-blocking UI.
+A robust, high-performance inventory management application built with Python (Tkinter) and MySQL. This release features a secure, immutable blockchain audit log for all transactions, Role-Based Access Control (RBAC), built-in connection pooling, a customized logging architecture, and a fully multi-threaded, non-blocking UI.
 
 -----
 
@@ -22,24 +22,27 @@ A robust, high-performance inventory management application built with Python (T
 
 -----
 
-## 🚀 Key Features (v2.0)
+## 🚀 Key Features
 
-  * **⛓️ Immutable Blockchain Ledger:** All inventory changes (adds, transfers, deletes) are recorded as transactions in a tamper-detectable blockchain.
+  * **⛓️ Immutable Blockchain Ledger:** All inventory changes (adds, transfers, deletes) are recorded as transactions in a tamper-detectable blockchain using Proof-of-Work.
   * **👤 Role-Based Access Control (RBAC):** Secure user (`user`) and administrator (`admin`) roles. Admins have exclusive access to view the global blockchain ledger.
-  * **⚡ High-Performance UI:** The entire application is multi-threaded. No database operation *ever* freezes the UI, ensuring a smooth, responsive user experience.
-  * **📈 Scalable By Design:** The blockchain now uses header-only loading, meaning the app starts instantly and uses minimal RAM, even with millions of transactions.
-  * **🔐 Secure Credentials:** All user PINs are hashed using **bcrypt**, the industry-standard.
-  * **📦 Atomic Transactions:** Stock transfers are fully atomic (using `FOR UPDATE` and single commits). If a transfer fails, the entire transaction is rolled back, preventing data corruption.
-  * **🏪 Multi-Branch Support:** Manage inventory and conduct seamless stock transfers between multiple branches.
+  * **⚡ High-Performance Architecture:** 
+    * **Connection Pooling:** Utilizes `mysql.connector.pooling` to execute background threads significantly faster.
+    * **Multi-threading:** Non-blocking UI ensures a smooth, responsive user experience while executing background database workloads.
+  * **📈 Scalable By Design:** The blockchain uses header-only loading, meaning the app starts instantly and uses minimal RAM, even with millions of transactions.
+  * **🔐 Secure Credentials:** All user PINs are hashed using **bcrypt**, the industry standard for secure password hashing.
+  * **📦 Atomic Transactions:** Stock transfers are fully atomic (using row-level locking `FOR UPDATE` and single commits). If a transfer fails, the entire transaction rolls back, preventing data corruption.
+  * **🏪 Multi-Branch Support:** Manage inventory and conduct seamless stock transfers seamlessly between multiple branches.
+  * **📝 Advanced Logging:** Standardized comprehensive Python logging to capture errors, tracebacks, and blockchain mining successes securely.
 
 -----
 
 ## 💻 Tech Stack
 
-  * **Core:** Python 3
+  * **Core:** Python 3 (incorporating Type Hints & Modular Logic)
   * **GUI:** Tkinter (standard library)
   * **Database:** MySQL Server
-  * **Connector:** `mysql-connector-python`
+  * **Connector:** `mysql-connector-python` (with `pooling`)
   * **Security:** `bcrypt`
   * **Config:** `python-dotenv`
 
