@@ -1,13 +1,19 @@
 import time
+import logging
 import mysql.connector
+from mysql.connector import pooling
 from datetime import datetime
 from tkinter import *
 from tkinter import messagebox, ttk
 import threading
 import bcrypt
 import os
+from typing import Optional, Any, Dict
 from dotenv import load_dotenv
 from blockchain import Blockchain
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Load credentials from .env file
 load_dotenv()
@@ -17,22 +23,33 @@ DB_USER = os.environ.get('DB_USER')
 DB_PASS = os.environ.get('DB_PASS')
 DB_NAME = os.environ.get('DB_NAME')
 
-def get_db_connection():
-    """
-    Establishes a new database connection.
-    This should be called per-thread to ensure thread safety.
-    """
-    try:
-        db = mysql.connector.connect(
+# Global Connection Pool
+db_pool = None
+try:
+    if all([DB_HOST, DB_USER, DB_NAME]):
+        db_pool = mysql.connector.pooling.MySQLConnectionPool(
+            pool_name="inventory_pool",
+            pool_size=5,
+            pool_reset_session=True,
             host=DB_HOST,
             user=DB_USER,
             password=DB_PASS,
             database=DB_NAME,
-            connect_timeout=10 # Add a connection timeout
+            connect_timeout=10
         )
-        return db
+except mysql.connector.Error as pool_err:
+    logging.critical(f"Failed to create connection pool: {pool_err}")
+
+def get_db_connection() -> Optional[Any]:
+    """
+    Retrieves a connection from the connection pool.
+    """
+    try:
+        if db_pool:
+            return db_pool.get_connection()
+        return None
     except mysql.connector.Error as err:
-        print(f"CRITICAL DB ERROR: {err}")
+        logging.error(f"DB ERROR: {err}")
         return None
 
 class InventorySystem:
@@ -484,9 +501,9 @@ class InventorySystem:
             previous_hash = self.blockchain.hash(previous_block)
             
             # 3. Calculate the Proof-of-Work (mine) for the new block
-            print(f"Mining new block for item {item}...")
+            logging.info(f"Mining new block for item {item}...")
             nonce = self.blockchain.proof_of_work(previous_hash, self.blockchain.pending_transactions)
-            print(f"Block mined! Nonce found: {nonce}")
+            logging.info(f"Block mined! Nonce found: {nonce}")
 
             # 4. Save the new block to the DB (also uses cursor)
             self.blockchain.create_block(cursor, nonce, previous_hash)
@@ -575,9 +592,9 @@ class InventorySystem:
             previous_hash = self.blockchain.hash(previous_block)
 
             # 3. Mine block
-            print(f"Mining new block for deleting {item_name}...")
+            logging.info(f"Mining new block for deleting {item_name}...")
             nonce = self.blockchain.proof_of_work(previous_hash, self.blockchain.pending_transactions)
-            print(f"Block mined! Nonce found: {nonce}")
+            logging.info(f"Block mined! Nonce found: {nonce}")
             
             # 4. Save block to DB
             self.blockchain.create_block(cursor, nonce, previous_hash)
@@ -834,9 +851,9 @@ class InventorySystem:
             previous_hash = self.blockchain.hash(previous_block)
 
             # 4. Mine block
-            print(f"Mining new block for transfer of {item}...")
+            logging.info(f"Mining new block for transfer of {item}...")
             nonce = self.blockchain.proof_of_work(previous_hash, self.blockchain.pending_transactions)
-            print(f"Block mined! Nonce found: {nonce}")
+            logging.info(f"Block mined! Nonce found: {nonce}")
             
             # 5. Save block to DB
             self.blockchain.create_block(cursor, nonce, previous_hash)
@@ -897,11 +914,11 @@ class InventorySystem:
 if __name__ == '__main__':
     # Check for .env file variables before starting
     if not all([DB_HOST, DB_USER, DB_NAME]):
-        print("CRITICAL ERROR: Database credentials not found in .env file.")
-        print("Please create a .env file with DB_HOST, DB_USER, DB_PASS, and DB_NAME.")
+        logging.critical("Database credentials not found in .env file.")
+        logging.info("Please create a .env file with DB_HOST, DB_USER, DB_PASS, and DB_NAME.")
     else:
         root = Tk()
         app = InventorySystem(root)
         root.mainloop()
         
-        print("Application closed.")
+        logging.info("Application closed.")
