@@ -60,6 +60,59 @@ class Blockchain:
         encoded_payload = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(encoded_payload).hexdigest()
 
+    def _legacy_sort_transactions(self, transactions):
+        """Sorts transactions like the original implementation (by timestamp only)."""
+        legacy_transactions = []
+        for tx in transactions:
+            legacy_transactions.append({
+                'user': tx.get('user'),
+                'action': tx.get('action'),
+                'item': tx.get('item'),
+                'quantity': int(tx.get('quantity', 0)),
+                'timestamp': float(tx.get('timestamp', 0.0)),
+                'branch': tx.get('branch')
+            })
+        return sorted(legacy_transactions, key=lambda tx: tx['timestamp'])
+
+    def _legacy_hash(self, block):
+        """Original block-hash format used by existing ledgers."""
+        block_copy = {
+            'index': int(block.get('index', 0)),
+            'timestamp': float(block.get('timestamp', 0.0)),
+            'nonce': int(block.get('nonce', 0)),
+            'previous_hash': block.get('previous_hash', ''),
+            'transactions': self._legacy_sort_transactions(block.get('transactions', []))
+        }
+        encoded_block = json.dumps(block_copy, sort_keys=True).encode()
+        return hashlib.sha256(encoded_block).hexdigest()
+
+    def _legacy_pow_hash(self, previous_hash, transactions, block_index, nonce, timestamp):
+        """Legacy PoW payload hash used by older blocks."""
+        payload = {
+            'index': int(block_index),
+            'timestamp': float(timestamp),
+            'previous_hash': previous_hash,
+            'transactions': self._legacy_sort_transactions(transactions),
+            'nonce': int(nonce)
+        }
+        encoded_payload = json.dumps(payload, sort_keys=True).encode()
+        return hashlib.sha256(encoded_payload).hexdigest()
+
+    def _prepare_transactions_for_storage(self, transactions):
+        """Normalizes transactions to match DB DATETIME precision for stable hashing."""
+        prepared = []
+        for tx in transactions:
+            tx_time = datetime.fromtimestamp(float(tx['timestamp'])).replace(microsecond=0)
+            prepared.append({
+                'user': tx.get('user'),
+                'action': tx.get('action'),
+                'item': tx.get('item'),
+                'quantity': int(tx.get('quantity', 0)),
+                'timestamp': tx_time.timestamp(),
+                'branch': tx.get('branch')
+            })
+        return prepared
+
     def _acquire_db_lock(self, cursor, timeout_seconds=15):
         """Uses a DB advisory lock so multiple app instances cannot mine at once."""
         cursor.execute("SELECT GET_LOCK(%s, %s);", (self._db_lock_name, timeout_seconds))
@@ -71,6 +124,9 @@ class Blockchain:
         """Best-effort release for the DB advisory lock."""
         try:
             cursor.execute("SELECT RELEASE_LOCK(%s);", (self._db_lock_name,))
+            cursor.fetchone()
+            while cursor.nextset():
+                cursor.fetchall()
         except mysql.connector.Error:
             # Ignore release failures: lock also auto-releases when connection closes.
             pass
@@ -223,16 +279,8 @@ class Blockchain:
         return self.get_block_with_transactions(cursor, int(latest[0]))
 
     def hash(self, block):
-        """Hashes a full block (header and transactions) in canonical form."""
-        block_copy = {
-            'index': int(block.get('index', 0)),
-            'timestamp': float(block.get('timestamp', 0.0)),
-            'nonce': int(block.get('nonce', 0)),
-            'previous_hash': block.get('previous_hash', ''),
-            'transactions': self._normalize_transactions(block.get('transactions', []))
-        }
-        encoded_block = json.dumps(block_copy, sort_keys=True, separators=(",", ":")).encode()
-        return hashlib.sha256(encoded_block).hexdigest()
+        """Hashes a full block using legacy-compatible format for chain linkage."""
+        return self._legacy_hash(block)
 
     def proof_of_work(self, previous_hash, transactions, block_index):
         """Finds a nonce that satisfies the configured difficulty."""
@@ -253,14 +301,20 @@ class Blockchain:
             return True
 
         if timestamp is not None:
-            legacy_hash = self._pow_hash(previous_hash, transactions, block_index, nonce, timestamp=timestamp)
-            return legacy_hash.startswith(self.difficulty)
+            timestamp_hash = self._pow_hash(previous_hash, transactions, block_index, nonce, timestamp=timestamp)
+            if timestamp_hash.startswith(self.difficulty):
+                return True
+
+            legacy_hash = self._legacy_pow_hash(previous_hash, transactions, block_index, nonce, timestamp)
+            if legacy_hash.startswith(self.difficulty):
+                return True
 
         return False
 
     def create_block(self, cursor, nonce, previous_hash, transactions, block_index, skip_pow_validation=False):
         """Persists a block header and its transactions to DB and updates in-memory headers."""
         transactions = self._normalize_transactions(transactions)
+        transactions_for_storage = self._prepare_transactions_for_storage(transactions)
         timestamp_obj = datetime.now()
 
         if (not skip_pow_validation) and (not self.is_valid_proof(previous_hash, transactions, nonce, block_index)):
@@ -271,7 +325,7 @@ class Blockchain:
             'timestamp': timestamp_obj.timestamp(),
             'nonce': int(nonce),
             'previous_hash': previous_hash,
-            'transactions': transactions
+            'transactions': transactions_for_storage
         }
         current_hash = self.hash(block_for_hash)
 
@@ -287,7 +341,7 @@ class Blockchain:
                 (int(block_index), timestamp_obj, int(nonce), previous_hash)
             )
 
-        for tx in transactions:
+        for tx in transactions_for_storage:
             tx_timestamp = datetime.fromtimestamp(float(tx['timestamp']))
             cursor.execute(
                 "INSERT INTO transactions (block_index, user, action, item, quantity, timestamp, branch) "
@@ -321,7 +375,7 @@ class Blockchain:
             'nonce': int(nonce),
             'previous_hash': previous_hash,
             'current_hash': current_hash,
-            'transactions': transactions
+            'transactions': transactions_for_storage
         }
 
     def mine_and_create_block(self, cursor, transactions):
@@ -362,6 +416,7 @@ class Blockchain:
                 return True
 
             previous_block_full = None
+            legacy_pow_skipped = 0
             for i, current_block_header in enumerate(self.chain):
                 current_block_full = self.get_block_with_transactions(cursor, current_block_header['index'])
                 if current_block_full is None:
@@ -387,16 +442,26 @@ class Blockchain:
                         print(f"Chain invalid: Stored hash mismatch at block {current_block_full['index']}")
                         return False
 
-                if not self.is_valid_proof(
+                proof_valid = self.is_valid_proof(
                     current_block_full['previous_hash'],
                     current_block_full.get('transactions', []),
                     current_block_full['nonce'],
                     current_block_full['index'],
                     timestamp=current_block_full['timestamp']
-                ):
-                    print(f"Chain invalid: Invalid proof-of-work at block {current_block_full['index']}")
-                    return False
+                )
+
+                if not proof_valid:
+                    # Older ledgers did not persist the PoW timestamp input, so strict
+                    # legacy PoW re-validation is not always possible after the fact.
+                    if self._has_current_hash_column and current_block_full.get('current_hash'):
+                        print(f"Chain invalid: Invalid proof-of-work at block {current_block_full['index']}")
+                        return False
+                    else:
+                        legacy_pow_skipped += 1
 
                 previous_block_full = current_block_full
+
+            if legacy_pow_skipped:
+                print(f"Warning: Strict PoW validation skipped for {legacy_pow_skipped} legacy block(s).")
 
             return True
