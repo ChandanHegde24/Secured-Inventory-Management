@@ -94,9 +94,9 @@ You must have a running MySQL server.
 2. Create a dedicated user for the app (Recommended for security):
 
     ```sql
-    -- Creates a user 'inventory_app_user' with the password '123@cn'
-    CREATE USER 'inventory_app_user'@'localhost' IDENTIFIED BY '123@cn';
-    GRANT ALL PRIVILEGES ON inventory_db.* TO 'inventory_app_user'@'localhost';
+    -- Create a dedicated user with a strong, unique password
+    CREATE USER 'inventory_app_user'@'localhost' IDENTIFIED BY 'REPLACE_WITH_A_STRONG_PASSWORD';
+    GRANT SELECT, INSERT, UPDATE, DELETE ON inventory_db.* TO 'inventory_app_user'@'localhost';
     FLUSH PRIVILEGES;
     ```
 
@@ -126,7 +126,8 @@ You must have a running MySQL server.
         block_index INT PRIMARY KEY NOT NULL,
         timestamp DATETIME NOT NULL,
         nonce INT NOT NULL,
-        previous_hash VARCHAR(64) NOT NULL
+        previous_hash VARCHAR(64) NOT NULL,
+        current_hash VARCHAR(64) NULL
     );
 
     -- 4. 'transactions' table (stores all transaction data)
@@ -143,6 +144,12 @@ You must have a running MySQL server.
     );
     ```
 
+Optional migration for existing databases:
+
+```sql
+ALTER TABLE blockchain ADD COLUMN current_hash VARCHAR(64) NULL;
+```
+
 ### 4\. Create your `.env` File
 
 In the root of the project, create a file named `.env`. This securely stores your database credentials so they aren't hard-coded in the script.
@@ -151,7 +158,7 @@ In the root of the project, create a file named `.env`. This securely stores you
 # .env file
 DB_HOST=localhost
 DB_USER=inventory_app_user
-DB_PASS=123@cn
+DB_PASS=REPLACE_WITH_A_STRONG_PASSWORD
 DB_NAME=inventory_db
 ```
 

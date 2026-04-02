@@ -3,6 +3,16 @@ import bcrypt
 from dotenv import load_dotenv
 import os
 
+BCRYPT_PREFIXES = ('$2a$', '$2b$', '$2y$')
+
+
+def is_bcrypt_hash(value):
+    """Returns True when the provided value looks like a bcrypt hash."""
+    if not isinstance(value, str):
+        return False
+    stripped = value.strip()
+    return len(stripped) >= 60 and any(stripped.startswith(prefix) for prefix in BCRYPT_PREFIXES)
+
 # Load credentials from .env
 load_dotenv()
 
@@ -42,8 +52,8 @@ try:
     updated_count = 0
 
     for username, pin in users:
-        # Check if the PIN is already hashed (bcrypt hashes start with $2b$)
-        if pin.startswith('$2b$'):
+        # Skip rows that are already bcrypt hashes.
+        if is_bcrypt_hash(pin):
             print(f"Skipping user '{username}': PIN already hashed.")
             continue
 

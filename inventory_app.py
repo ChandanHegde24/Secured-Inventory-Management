@@ -2,13 +2,12 @@ import time
 import logging
 import mysql.connector
 from mysql.connector import pooling
-from datetime import datetime
 from tkinter import *
 from tkinter import messagebox, ttk
 import threading
 import bcrypt
 import os
-from typing import Optional, Any, Dict
+from typing import Optional, Any
 from dotenv import load_dotenv
 from blockchain import Blockchain
 
@@ -74,7 +73,7 @@ class InventorySystem:
         try:
             self.blockchain = Blockchain()
             self.blockchain.load_chain(db)
-        except mysql.connector.Error as err:
+        except Exception as err:
             messagebox.showerror("Fatal Error", f"Could not load blockchain: {err}")
             root.quit()
             return
@@ -106,8 +105,22 @@ class InventorySystem:
         for widget in self.root.winfo_children():
             widget.destroy()
 
+    def sync_blockchain_cache(self, db):
+        """Best-effort resync for in-memory headers after rollbacks or external writes."""
+        if not db or not db.is_connected():
+            return
+        try:
+            self.blockchain.sync_chain_headers(db)
+        except Exception as sync_err:
+            logging.warning(f"Could not refresh blockchain cache: {sync_err}")
+
     def loginscreen(self):
         """Displays the main login UI."""
+        # Reset auth state when user returns to the login screen.
+        self.current_user = None
+        self.current_branch = None
+        self.current_role = None
+
         self.clear_root()
         self.root.configure(bg="#e6f7ff")
 
@@ -193,6 +206,8 @@ class InventorySystem:
     def login_logic(self, user, pin, selected_branch):
         """Validates user credentials and fetches their role in a background thread."""
         db = None
+        cursor = None
+        login_success = False
         try:
             db = get_db_connection()
             if db is None:
@@ -218,6 +233,7 @@ class InventorySystem:
                     self.current_user = user
                     self.current_branch = selected_branch
                     self.current_role = user_role
+                    login_success = True
                     self.root.after(0, self.main_screen) # Switch to main screen on UI thread
                 else:
                     self.show_message('error', 'Login Failed', 'Invalid credentials or wrong branch')
@@ -229,14 +245,12 @@ class InventorySystem:
         except Exception as e:
             self.show_message('error', 'Login Error', f'An unexpected error occurred: {e}')
         finally:
-            # Only re-enable the button if the login *failed*
-            # (i.e., self.current_user was not set).
-            # This prevents an error on successful login when the widget is destroyed.
-            if self.current_user is None:
+            # Only re-enable the button if login failed.
+            if not login_success:
                 self.root.after(0, lambda: self.login_button.config(state=NORMAL, text="Login"))
                 
             if db and db.is_connected():
-                if 'cursor' in locals(): # Check if cursor was created
+                if cursor:
                     cursor.close()
                 db.close()
 
@@ -378,6 +392,7 @@ class InventorySystem:
     def load_inventory_logic(self):
         """Fetches the current branch's inventory from the DB in a thread."""
         db = None
+        cursor = None
         try:
             db = get_db_connection()
             if db is None:
@@ -395,7 +410,8 @@ class InventorySystem:
             self.show_message('error', 'Load Error', f'Failed to load inventory: {err}')
         finally:
             if db and db.is_connected():
-                cursor.close()
+                if cursor:
+                    cursor.close()
                 db.close()
 
     def load_inventory_display(self):
@@ -452,15 +468,14 @@ class InventorySystem:
     def add_update_stock_logic(self, item, qty_change):
         """
         Handles the logic for adding/updating stock in a transaction:
-        1. Lock inventory row.
-        2. Check stock levels.
-        3. Update inventory.
-        4. Create blockchain transaction.
-        5. Mine block (PoW).
-        6. Save block to DB.
-        7. Commit transaction.
+        1. Validate using a quick read.
+        2. Mine and stage blockchain block.
+        3. Lock inventory row and re-check stock.
+        4. Update inventory.
+        5. Commit transaction.
         """
         db = None
+        cursor = None
         try:
             db = get_db_connection()
             if db is None:
@@ -468,47 +483,53 @@ class InventorySystem:
                 return
 
             cursor = db.cursor()
-            
-            # Lock the row for update to prevent race conditions
+
+            # Fast pre-check to avoid unnecessary mining when clearly invalid.
             cursor.execute(
-                "SELECT quantity FROM inventory WHERE item=%s AND branch=%s FOR UPDATE",
+                "SELECT quantity FROM inventory WHERE item=%s AND branch=%s",
                 (item, self.current_branch)
             )
             result = cursor.fetchone()
-            prev_qty = result[0] if result else 0
-            
-            new_qty = prev_qty + qty_change
+            preview_qty = result[0] if result else 0
 
-            if new_qty < 0:
-                self.show_message('error', 'Invalid Quantity', f'Cannot remove {abs(qty_change)} units. Only {prev_qty} units of "{item}" are in stock.')
+            preview_new_qty = preview_qty + qty_change
+
+            if preview_new_qty < 0:
+                self.show_message('error', 'Invalid Quantity', f'Cannot remove {abs(qty_change)} units. Only {preview_qty} units of "{item}" are in stock.')
                 return
 
-            # 1. Update inventory table
-            self.save_inventory_item_logic(cursor, item, new_qty, self.current_branch)
-
-            transaction = {
+            transactions_batch = [{
                 'user': self.current_user,
                 'action': 'Add/Update',
                 'item': item,
                 'quantity': qty_change, 
                 'timestamp': time.time(),
                 'branch': self.current_branch
-            }
-            self.blockchain.add_transaction(transaction)
+            }]
 
-            # 2. Get previous block hash (needs cursor for DB read)
-            previous_block = self.blockchain.get_previous_block(cursor) 
-            previous_hash = self.blockchain.hash(previous_block)
-            
-            # 3. Calculate the Proof-of-Work (mine) for the new block
+            # Mine before taking inventory locks to reduce lock contention.
             logging.info(f"Mining new block for item {item}...")
-            nonce = self.blockchain.proof_of_work(previous_hash, self.blockchain.pending_transactions)
-            logging.info(f"Block mined! Nonce found: {nonce}")
+            block = self.blockchain.mine_and_create_block(cursor, transactions_batch)
+            logging.info(f"Block mined and staged! Index: {block['index']} | Nonce: {block['nonce']}")
 
-            # 4. Save the new block to the DB (also uses cursor)
-            self.blockchain.create_block(cursor, nonce, previous_hash)
+            # Final lock + re-check for correctness at commit time.
+            cursor.execute(
+                "SELECT quantity FROM inventory WHERE item=%s AND branch=%s FOR UPDATE",
+                (item, self.current_branch)
+            )
+            result = cursor.fetchone()
+            prev_qty = result[0] if result else 0
+            new_qty = prev_qty + qty_change
+
+            if new_qty < 0:
+                db.rollback()
+                self.sync_blockchain_cache(db)
+                self.show_message('error', 'Invalid Quantity', f'Stock changed during processing. Only {prev_qty} units of "{item}" are available now.')
+                return
+
+            self.save_inventory_item_logic(cursor, item, new_qty, self.current_branch)
             
-            # 5. Commit all DB changes (inventory + blockchain)
+            # Commit inventory + blockchain together.
             db.commit() 
 
             # Update in-memory inventory
@@ -525,14 +546,19 @@ class InventorySystem:
                 self.show_message('info', 'Success', f'Removed {abs(qty_change)} units from "{item}". New total: {new_qty}.')
 
         except mysql.connector.Error as err:
-            if db: db.rollback()
+            if db:
+                db.rollback()
+                self.sync_blockchain_cache(db)
             self.show_message('error', 'Error', f'Database error: {err}\nTransaction rolled back.')
         except Exception as e:
-            if db: db.rollback()
+            if db:
+                db.rollback()
+                self.sync_blockchain_cache(db)
             self.show_message('error', 'Error', f'An unexpected error occurred: {e}\nTransaction rolled back.')
         finally:
             if db and db.is_connected():
-                cursor.close()
+                if cursor:
+                    cursor.close()
                 db.close()
 
     def delete_product(self):
@@ -556,13 +582,13 @@ class InventorySystem:
     def delete_product_logic(self, item_name, tree_item_id):
         """
         Handles the logic for deleting a product in a transaction:
-        1. Delete from inventory.
-        2. Create blockchain transaction.
-        3. Mine block (PoW).
-        4. Save block to DB.
-        5. Commit transaction.
+        1. Verify product still exists.
+        2. Mine and stage blockchain block.
+        3. Delete from inventory.
+        4. Commit transaction.
         """
         db = None
+        cursor = None
         try:
             db = get_db_connection()
             if db is None:
@@ -571,35 +597,40 @@ class InventorySystem:
                 
             cursor = db.cursor()
 
-            # 1. Delete from inventory
             cursor.execute(
-                "DELETE FROM inventory WHERE item=%s AND branch=%s",
+                "SELECT quantity FROM inventory WHERE item=%s AND branch=%s",
                 (item_name, self.current_branch)
             )
-            
-            # 2. Create blockchain transaction
-            transaction = {
+            existing = cursor.fetchone()
+            if not existing:
+                self.show_message('error', 'Error', f'Product "{item_name}" no longer exists in {self.current_branch}.')
+                return
+
+            transactions_batch = [{
                 'user': self.current_user,
                 'action': 'Delete Product',
                 'item': item_name,
                 'quantity': 0,
                 'timestamp': time.time(),
                 'branch': self.current_branch
-            }
-            self.blockchain.add_transaction(transaction)
+            }]
 
-            previous_block = self.blockchain.get_previous_block(cursor)
-            previous_hash = self.blockchain.hash(previous_block)
-
-            # 3. Mine block
             logging.info(f"Mining new block for deleting {item_name}...")
-            nonce = self.blockchain.proof_of_work(previous_hash, self.blockchain.pending_transactions)
-            logging.info(f"Block mined! Nonce found: {nonce}")
-            
-            # 4. Save block to DB
-            self.blockchain.create_block(cursor, nonce, previous_hash)
+            block = self.blockchain.mine_and_create_block(cursor, transactions_batch)
+            logging.info(f"Block mined and staged! Index: {block['index']} | Nonce: {block['nonce']}")
 
-            # 5. Commit transaction
+            # Delete after mining so inventory locks are held for less time.
+            cursor.execute(
+                "DELETE FROM inventory WHERE item=%s AND branch=%s",
+                (item_name, self.current_branch)
+            )
+
+            if cursor.rowcount == 0:
+                db.rollback()
+                self.sync_blockchain_cache(db)
+                self.show_message('error', 'Error', f'Product "{item_name}" no longer exists in {self.current_branch}.')
+                return
+
             db.commit() 
 
             if item_name in self.inventory:
@@ -610,14 +641,19 @@ class InventorySystem:
             self.show_message('info', 'Deleted', f'Product "{item_name}" deleted successfully from {self.current_branch}')
             
         except mysql.connector.Error as err:
-            if db: db.rollback()
+            if db:
+                db.rollback()
+                self.sync_blockchain_cache(db)
             self.show_message('error', 'Error', f'Failed to delete product: {err}\nTransaction rolled back.')
         except Exception as e:
-            if db: db.rollback()
+            if db:
+                db.rollback()
+                self.sync_blockchain_cache(db)
             self.show_message('error', 'Error', f'An unexpected error occurred: {e}\nTransaction rolled back.')
         finally:
             if db and db.is_connected():
-                cursor.close()
+                if cursor:
+                    cursor.close()
                 db.close()
 
     def view_blockchain(self):
@@ -625,8 +661,8 @@ class InventorySystem:
         Displays the blockchain ledger in a new window.
         Fetches full block data (with TXs) on-demand using a new, short-lived connection.
         """
-        if not self.blockchain.chain:
-            messagebox.showinfo('Blockchain', 'The Global Blockchain is empty.')
+        if self.current_role != 'admin':
+            messagebox.showerror('Access Denied', 'Only admins can view the global blockchain ledger.')
             return
             
         blocks_text = 'Global Blockchain Ledger (All Branches)\n' + '=' * 50 + '\n\n'
@@ -636,6 +672,12 @@ class InventorySystem:
             db = get_db_connection()
             if db is None:
                 self.show_message('error', 'Blockchain Error', 'Could not connect to database to view ledger.')
+                return
+
+            self.blockchain.sync_chain_headers(db)
+
+            if not self.blockchain.chain:
+                messagebox.showinfo('Blockchain', 'The Global Blockchain is empty.')
                 return
 
             # Create a cursor just for this read operation
@@ -787,15 +829,14 @@ class InventorySystem:
     def execute_stock_transfer_logic(self, item, quantity, to_branch, window):
         """
         Handles the logic for a stock transfer in a single transaction:
-        1. Lock source and target inventory rows.
-        2. Check stock levels again.
-        3. Update both inventory records.
-        4. Create two blockchain transactions (out and in).
-        5. Mine block (PoW).
-        6. Save block to DB.
-        7. Commit transaction.
+        1. Pre-check source stock.
+        2. Mine and stage transfer block.
+        3. Lock source and target rows.
+        4. Re-check stock and update both records.
+        5. Commit transaction.
         """
         db = None
+        cursor = None
         try:
             db = get_db_connection()
             if db is None:
@@ -803,6 +844,33 @@ class InventorySystem:
                 return
 
             cursor = db.cursor()
+
+            # Quick pre-check before mining.
+            cursor.execute(
+                "SELECT quantity FROM inventory WHERE item=%s AND branch=%s",
+                (item, self.current_branch)
+            )
+            preview_result = cursor.fetchone()
+            preview_stock_source = preview_result[0] if preview_result else 0
+            if quantity > preview_stock_source:
+                self.show_message('error', 'Insufficient Stock', f'Only {preview_stock_source} units are currently available.', parent=window)
+                return
+
+            tx_time = time.time()
+            transactions_batch = [
+                {
+                    'user': self.current_user, 'action': 'Transfer Out', 'item': item,
+                    'quantity': -quantity, 'timestamp': tx_time, 'branch': self.current_branch
+                },
+                {
+                    'user': self.current_user, 'action': 'Transfer In', 'item': item,
+                    'quantity': quantity, 'timestamp': tx_time + 0.001, 'branch': to_branch
+                }
+            ]
+
+            logging.info(f"Mining new block for transfer of {item}...")
+            block = self.blockchain.mine_and_create_block(cursor, transactions_batch)
+            logging.info(f"Block mined and staged! Index: {block['index']} | Nonce: {block['nonce']}")
             
             # Lock source row
             cursor.execute(
@@ -816,6 +884,7 @@ class InventorySystem:
             if quantity > current_stock_source:
                 self.show_message('error', 'Insufficient Stock', f'Stock level changed. Only {current_stock_source} units available.', parent=window)
                 db.rollback()
+                self.sync_blockchain_cache(db)
                 return
                 
             # Lock target row
@@ -835,30 +904,7 @@ class InventorySystem:
             # 2. Update target inventory
             self.save_inventory_item_logic(cursor, item, new_stock_target, to_branch)
             
-            tx_time = time.time()
-            
-            # 3. Add both sides of the transfer to the pending transactions
-            self.blockchain.add_transaction({
-                'user': self.current_user, 'action': 'Transfer Out', 'item': item,
-                'quantity': -quantity, 'timestamp': tx_time, 'branch': self.current_branch
-            })
-            self.blockchain.add_transaction({
-                'user': self.current_user, 'action': 'Transfer In', 'item': item,
-                'quantity': quantity, 'timestamp': tx_time + 1, 'branch': to_branch # Ensure unique timestamp
-            })
-            
-            previous_block = self.blockchain.get_previous_block(cursor)
-            previous_hash = self.blockchain.hash(previous_block)
-
-            # 4. Mine block
-            logging.info(f"Mining new block for transfer of {item}...")
-            nonce = self.blockchain.proof_of_work(previous_hash, self.blockchain.pending_transactions)
-            logging.info(f"Block mined! Nonce found: {nonce}")
-            
-            # 5. Save block to DB
-            self.blockchain.create_block(cursor, nonce, previous_hash)
-            
-            # 6. Commit all inventory and blockchain changes
+            # Commit all inventory and blockchain changes.
             db.commit() 
             
             # Update local in-memory inventory
@@ -870,14 +916,19 @@ class InventorySystem:
             self.show_message('info', 'Success', f'Transferred {quantity} units of "{item}" to {to_branch} successfully.')
 
         except mysql.connector.Error as err:
-            if db: db.rollback()
+            if db:
+                db.rollback()
+                self.sync_blockchain_cache(db)
             self.show_message('error', 'Transfer Failed', f'An error occurred: {err}\nTransaction rolled back.', parent=window)
         except Exception as e:
-            if db: db.rollback()
+            if db:
+                db.rollback()
+                self.sync_blockchain_cache(db)
             self.show_message('error', 'Transfer Failed', f'An unexpected error occurred: {e}\nTransaction rolled back.', parent=window)
         finally:
             if db and db.is_connected():
-                cursor.close()
+                if cursor:
+                    cursor.close()
                 db.close()
 
 
