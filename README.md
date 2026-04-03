@@ -2,9 +2,19 @@
 
 A robust, high-performance inventory management application built with Python (Tkinter) and MySQL. This release features a secure, immutable blockchain audit log for all transactions, Role-Based Access Control (RBAC), built-in connection pooling, a customized logging architecture, and a fully multi-threaded, non-blocking UI.
 
+## 📑 Table of Contents
+
+- [Application Dashboard](#-application-dashboard)
+- [Key Features](#-key-features)
+- [Tech Stack](#-tech-stack)
+- [Project Structure](#-project-structure)
+- [Setup & Installation](#️-setup--installation)
+- [User Guide](#-user-guide)
+- [License](#-license)
+
 -----
 
-## Application Dashboard
+## 🖥️ Application Dashboard
 
 **Login Page:**
 
@@ -197,6 +207,42 @@ You can now log in using the credentials you created (e.g., `admin1` / `1234`).
 
 -----
 
-## 📜 License
+## � User Guide
+
+Once the application is up and running, follow this guide to perform day-to-day inventory operations securely.
+
+### 1. Logging In
+* Launch the app and select your assigned **Branch** (e.g., `Inventory_1`).
+* Enter your **User ID** and **PIN**. 
+* The system uses Role-Based Access Control (RBAC), meaning your experience will differ based on whether you are a `user` or an `admin`.
+
+### 2. Managing Inventory (Adding/Updating Stock)
+* In the **Item Name** field, type the name of the product you want to manage.
+* In the **Quantity** field, enter the number of items:
+  * To add new stock: Enter a positive integer (e.g., `50`).
+  * To deduct stock (e.g., sales, damaged goods): Enter a negative integer (e.g., `-5`).
+* Click **Add/Update Stock**. The backend will instantly hash this transaction into a new block via Proof-of-Work and securely update your branch's inventory tab dynamically.
+
+### 3. Inter-Branch Stock Transfers
+* Click the **Stock Transfer** button to move inventory to another location (e.g., to `Inventory_2`).
+* A modal window will appear. Select the **Target Branch** from the dropdown menu.
+* Select the **Item** you want to transfer (only items currently in stock will be shown).
+* Enter the **Quantity** (must be a positive integer) and click **Confirm Transfer**. 
+* The app fully automates an atomic transfer: locking rows, verifying current stock, safely deducting from `Inventory_1`, safely depositing to `Inventory_2`, and mining a secure blockchain event.
+
+### 4. Search and Filters
+* In the top search bar labeled **Search Product**, simply begin typing characters.
+* The Treeview table will instantly filter the live inventory list as you type.
+* Click **Clear** to reset the view. 
+
+### 5. Reviewing the Blockchain Ledger (Admins Only)
+* If your account has the `admin` role, you will see a **View Blockchain** button.
+* Click it to open a read-only terminal showing the immutable, global ledger. 
+* Every block displays its **Nonce**, **Timestamp**, **Previous Hash**, and nested **Transactions** containing the Branch, User, Action, Item, and Quantities modified. 
+* This provides a pure, tamper-proof audit trail for business compliance.
+
+-----
+
+## �📜 License
 
 This project is licensed under the MIT License. See the `LICENSE` file for details.
