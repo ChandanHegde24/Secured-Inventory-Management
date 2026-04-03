@@ -74,9 +74,33 @@ Secured-Inventory-Management/
 
 ## ⚙️ Setup & Installation
 
-Follow these steps to get the application running locally.
+You can run this project using either **Docker (Recommended)** or locally.
 
-### 1\. Clone the Repository
+### 🐳 Docker Deployment (Recommended)
+
+Thanks to Docker, you can run the whole application stack (the Tkinter App + a MySQL Database container) seamlessly.
+
+1.  **Start the services from the root of the project:**
+    ```bash
+    docker-compose up --build -d
+    ```
+
+2.  **Displaying the GUI (X11 Forwarding):** 
+    Because Tkinter requires a display interface to work, your host machine must allow X11 forwarding to stream the GUI from Docker:
+    *   **Linux:** Make sure you run `xhost +local:root` on your machine before running `docker-compose up`.
+    *   **Windows:** You need an X server (like VcXsrv or Xming). Set your `DISPLAY` variable in the `docker-compose.yml` to `host.docker.internal:0`.
+    *   **MacOS:** You need XQuartz and have to allow connections from network clients.
+
+3.  **Run the Database Migration Script inside the container**:
+    ```bash
+    docker exec -it inventory_app python migrate_pins.py
+    ```
+
+### 💻 Local Deployment
+
+Follow these steps to get the application running locally without Docker.
+
+#### 1\. Clone the Repository
 
 ```bash
 git clone https://github.com/your-username/your-repo-name.git
